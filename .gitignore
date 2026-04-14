@@ -1,0 +1,54 @@
+# Snakemake runtime
+.snakemake/
+
+# Generated results
+results/
+logs/
+benchmarks/
+reports/
+
+# Temporary / scratch
+tmp/
+temp/
+scratch/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS junk
+.DS_Store
+
+# Conda / micromamba local envs
+.env/
+.venv/
+conda-env/
+micromamba_envs/
+
+# Large binary / assembly outputs
+*.gfa
+*.fa
+*.fasta
+*.fai
+*.fastq
+*.fastq.gz
+*.fq
+*.fq.gz
+*.bam
+*.bai
+*.sam
+*.cram
+*.crai
+*.bin
+
+# Optional: if you later store downloaded references locally
+resources/downloads/

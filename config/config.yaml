@@ -1,0 +1,6 @@
+species_table: "config/species.csv"
+
+hifiasm:
+  threads: 32
+  extra: ""
+
