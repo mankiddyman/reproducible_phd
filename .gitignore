@@ -1,54 +1,76 @@
-# Snakemake runtime
-.snakemake/
+# Ignore everything by default
+*
 
-# Generated results
+# Allow directories so git can descend into them
+!*/
+
+# Always allow gitignore files themselves
+!.gitignore
+
+# Core workflow / build files
+!Snakefile
+!Makefile
+!*.mk
+!*.smk
+!*.sh
+
+# Code
+!*.py
+!*.R
+!*.pl
+
+# Config / metadata / env definitions
+!*.yaml
+!*.yml
+!*.json
+!*.csv
+!*.tsv
+
+# Documentation
+!*.md
+!*.txt
+
+# Optional: allow lightweight notebooks only if you really want them tracked
+#!*.ipynb
+
+# Explicitly keep common repo directories traversable
+!config/
+!workflow/
+!workflow/rules/
+!envs/
+!scripts/
+!docs/
+
+# Still ignore known heavy/generated things even if extensions would otherwise match
 results/
 logs/
 benchmarks/
 reports/
-
-# Temporary / scratch
+.snakemake/
 tmp/
 temp/
 scratch/
 
-# Python
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
-
-# Editors
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-
-# OS junk
-.DS_Store
-
-# Conda / micromamba local envs
-.env/
-.venv/
-conda-env/
-micromamba_envs/
-
-# Large binary / assembly outputs
-*.gfa
-*.fa
-*.fasta
-*.fai
+# Ignore common bioinformatics heavy file types explicitly
 *.fastq
 *.fastq.gz
 *.fq
 *.fq.gz
+*.fa
+*.fa.gz
+*.fasta
+*.fasta.gz
+*.fai
+*.gfa
 *.bam
 *.bai
 *.sam
 *.cram
 *.crai
+*.vcf
+*.vcf.gz
+*.bcf
+*.csi
 *.bin
-
-# Optional: if you later store downloaded references locally
-resources/downloads/
+*.mmi
+*.meryl
