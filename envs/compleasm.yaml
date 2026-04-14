@@ -1,0 +1,6 @@
+name: compleasm
+channels:
+  - bioconda
+  - conda-forge
+dependencies:
+  - compleasm

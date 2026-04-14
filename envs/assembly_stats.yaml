@@ -1,0 +1,6 @@
+name: assembly-stats
+channels:
+  - bioconda
+  - conda-forge
+dependencies:
+  - assembly-stats
