@@ -4,3 +4,10 @@ hifiasm:
   threads: 32
   extra: ""
 
+compleasm:
+  lineage: eudicotyledons_odb12
+  library_path: resources/compleasm_lineages
+
+genomescope2:
+  threads: 16
+  hash_size: 20000000000

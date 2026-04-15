@@ -1,0 +1,10 @@
+name: genomescope2
+channels:
+  - conda-forge
+  - bioconda
+  - nodefaults
+dependencies:
+  - jellyfish
+  - r-base
+  - r-optparse
+  - r-minpack.lm

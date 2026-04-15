@@ -74,3 +74,14 @@ scratch/
 *.bin
 *.mmi
 *.meryl
+
+
+!resources/
+!resources/external/
+!resources/external/genomescope2.0/
+!resources/external/genomescope2.0/genomescope.R
+!resources/external/genomescope2.0/install.R
+!resources/external/genomescope2.0/DESCRIPTION
+!resources/external/genomescope2.0/NAMESPACE
+!resources/external/genomescope2.0/R/
+!resources/external/genomescope2.0/man/
