@@ -36,8 +36,8 @@ jobs:
         shell: bash {0}
         run: |
           snakemake --snakefile workflow/Snakefile --list > /tmp/list.stdout 2> /tmp/list.stderr
-         grep -v '^$' /tmp/list.stdout | grep -v 'Building DAG' | grep -v '^all$' > /tmp/rules.txt || true
-         RULES=$(tr '\n' ' ' < /tmp/rules.txt)
+          grep -v '^$' /tmp/list.stdout | grep -v 'Building DAG' | grep -v '^all$' > /tmp/rules.txt || true
+          RULES=$(tr '\n' ' ' < /tmp/rules.txt)
           echo "rules=$RULES" >> $GITHUB_OUTPUT
           echo "Rules: $RULES"
 
