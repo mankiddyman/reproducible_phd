@@ -31,13 +31,34 @@ jobs:
       - name: Install snakemake
         run: pip install snakemake pandas
 
-      - name: Render rulegraph
+      - name: List rules
+        id: rules
+        run: |
+          snakemake --snakefile workflow/Snakefile --list 2>/dev/null \
+            | grep -v '^$' > /tmp/rules.txt
+          echo "=== rules found ==="
+          cat /tmp/rules.txt
+          echo "==================="
+          RULES=$(tr '\n' ' ' < /tmp/rules.txt)
+          echo "rules=$RULES" >> $GITHUB_OUTPUT
+
+      - name: Render rulegraph to DOT
         run: |
           mkdir -p .github/assets
-          RULES=$(snakemake --snakefile workflow/Snakefile --list | tail -n +2)
-          echo "Rules found: $RULES"
-          snakemake --snakefile workflow/Snakefile --rulegraph $RULES \
-            | dot -Tsvg > .github/assets/rulegraph.svg
+          snakemake --snakefile workflow/Snakefile --rulegraph ${{ steps.rules.outputs.rules }} \
+            > /tmp/rulegraph.dot 2> /tmp/rulegraph.err
+          echo "=== DOT output ==="
+          cat /tmp/rulegraph.dot
+          echo "=== stderr ==="
+          cat /tmp/rulegraph.err
+
+      - name: Convert DOT to SVG
+        run: |
+          dot -Tsvg /tmp/rulegraph.dot > .github/assets/rulegraph.svg
+          echo "=== SVG size ==="
+          wc -c .github/assets/rulegraph.svg
+          echo "=== SVG head ==="
+          head -c 500 .github/assets/rulegraph.svg
 
       - name: Commit if changed
         run: |
