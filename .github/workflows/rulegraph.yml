@@ -31,25 +31,12 @@ jobs:
       - name: Install snakemake
         run: pip install snakemake pandas
 
-      - name: Debug + render rulegraph
+      - name: Render rulegraph
         run: |
           mkdir -p .github/assets
-          echo "=== repo layout ==="
-          ls -la
-          echo "=== config dir ==="
-          ls -la config/ || true
-          echo "=== species.csv head ==="
-          head config/species.csv || true
-          echo "=== workflow dir ==="
-          ls -la workflow/
-          echo "=== Snakefile ==="
-          cat workflow/Snakefile
-          echo "=== rules dir ==="
-          ls -la workflow/rules/ 2>/dev/null || echo "no workflow/rules"
-          echo "=== rulegraph output (text) ==="
-          snakemake --snakefile workflow/Snakefile --rulegraph
-          echo "=== rendering SVG ==="
-          snakemake --snakefile workflow/Snakefile --rulegraph \
+          RULES=$(snakemake --snakefile workflow/Snakefile --list | tail -n +2)
+          echo "Rules found: $RULES"
+          snakemake --snakefile workflow/Snakefile --rulegraph $RULES \
             | dot -Tsvg > .github/assets/rulegraph.svg
 
       - name: Commit if changed
