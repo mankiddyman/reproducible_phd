@@ -85,3 +85,7 @@ scratch/
 !resources/external/genomescope2.0/NAMESPACE
 !resources/external/genomescope2.0/R/
 !resources/external/genomescope2.0/man/
+
+!.github/
+!.github/assets/
+!.github/assets/rulegraph.svg
