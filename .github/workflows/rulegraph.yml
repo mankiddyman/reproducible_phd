@@ -18,6 +18,26 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
+name: Update rulegraph
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'workflow/**'
+      - 'config/**'
+      - 'Snakefile'
+      - 'rules/**'
+      - '.github/workflows/rulegraph.yml'
+  workflow_dispatch:
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
         with:
           submodules: false
 
@@ -31,9 +51,24 @@ jobs:
       - name: Install snakemake
         run: pip install snakemake pandas
 
-      - name: Render rulegraph
+      - name: Debug + render rulegraph
         run: |
           mkdir -p .github/assets
+          echo "=== repo layout ==="
+          ls -la
+          echo "=== config dir ==="
+          ls -la config/ || true
+          echo "=== species.csv head ==="
+          head config/species.csv || true
+          echo "=== workflow dir ==="
+          ls -la workflow/
+          echo "=== Snakefile ==="
+          cat workflow/Snakefile
+          echo "=== rules dir ==="
+          ls -la workflow/rules/ 2>/dev/null || echo "no workflow/rules"
+          echo "=== rulegraph output (text) ==="
+          snakemake --snakefile workflow/Snakefile --rulegraph
+          echo "=== rendering SVG ==="
           snakemake --snakefile workflow/Snakefile --rulegraph \
             | dot -Tsvg > .github/assets/rulegraph.svg
 
