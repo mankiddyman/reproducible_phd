@@ -6,4 +6,4 @@ include: "rules/qc.smk"
 
 rule all:
     input:
-        expand("results/assembly/{sp}/.done", sp=ASSEMBLE),
+        []
