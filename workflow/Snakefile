@@ -6,4 +6,6 @@ include: "rules/qc.smk"
 
 rule all:
     input:
-        []
+        expand("results/{species}/qc/assembly_stats/{species}.tsv", species=SPECIES),
+        expand("results/{species}/qc/compleasm/{species}/summary.txt", species=SPECIES),
+        expand("results/{species}/qc/read/genomescope2/model/summary.txt", species=SPECIES),

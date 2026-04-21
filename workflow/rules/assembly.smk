@@ -2,10 +2,14 @@ rule run_hifiasm:
     input:
         reads = get_fastqs
     output:
-        done = "results/{species}/hifiasm/{species}.done"
+        done = "results/{species}/hifiasm/{species}.done",
+        collapsed_gfa = "results/{species}/hifiasm/{species}.bp.p_ctg.gfa",
+        hap1_gfa = "results/{species}/hifiasm/{species}.bp.hap1.p_ctg.gfa",
+        hap2_gfa = "results/{species}/hifiasm/{species}.bp.hap2.p_ctg.gfa",
+        rutg_gfa = "results/{species}/hifiasm/{species}.bp.r_utg.gfa",
     params:
         out_prefix = "results/{species}/hifiasm/{species}",
-        extra= config["hifiasm"].get("extra", "")
+        extra = config["hifiasm"].get("extra", ""),
     threads: config["hifiasm"].get("threads", 16)
     log:
         "logs/hifiasm/{species}.log"
