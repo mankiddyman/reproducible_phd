@@ -19,18 +19,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: mamba-org/setup-micromamba@v1
+      - uses: actions/setup-python@v5
         with:
-          environment-name: smk
-          cache-environment: true
-          create-args: >-
-            python=3.11
-            snakemake-minimal
-            graphviz
-            pandas
+          python-version: '3.11'
+
+      - name: Install graphviz
+        run: sudo apt-get update && sudo apt-get install -y graphviz
+
+      - name: Install snakemake
+        run: pip install snakemake pandas
 
       - name: Render rulegraph
-        shell: bash -el {0}
         run: |
           mkdir -p .github/assets
           snakemake --snakefile workflow/Snakefile --rulegraph \
