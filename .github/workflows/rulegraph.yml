@@ -33,20 +33,28 @@ jobs:
 
       - name: List rules
         id: rules
+        shell: bash {0}
         run: |
-          snakemake --snakefile workflow/Snakefile --list 2>/dev/null \
-            | grep -v '^$' > /tmp/rules.txt
-          echo "=== rules found ==="
+          echo "=== running snakemake --list ==="
+          snakemake --snakefile workflow/Snakefile --list > /tmp/list.stdout 2> /tmp/list.stderr
+          echo "exit code: $?"
+          echo "=== stdout ==="
+          cat /tmp/list.stdout
+          echo "=== stderr ==="
+          cat /tmp/list.stderr
+          echo "=== extracted rule names ==="
+          grep -v '^$' /tmp/list.stdout | grep -v 'Building DAG' > /tmp/rules.txt || true
           cat /tmp/rules.txt
-          echo "==================="
           RULES=$(tr '\n' ' ' < /tmp/rules.txt)
           echo "rules=$RULES" >> $GITHUB_OUTPUT
 
       - name: Render rulegraph to DOT
+        shell: bash {0}
         run: |
           mkdir -p .github/assets
           snakemake --snakefile workflow/Snakefile --rulegraph ${{ steps.rules.outputs.rules }} \
             > /tmp/rulegraph.dot 2> /tmp/rulegraph.err
+          echo "exit code: $?"
           echo "=== DOT output ==="
           cat /tmp/rulegraph.dot
           echo "=== stderr ==="
