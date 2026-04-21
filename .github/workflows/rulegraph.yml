@@ -35,24 +35,17 @@ jobs:
         id: rules
         shell: bash {0}
         run: |
-          echo "=== running snakemake --list ==="
           snakemake --snakefile workflow/Snakefile --list > /tmp/list.stdout 2> /tmp/list.stderr
-          echo "exit code: $?"
-          echo "=== stdout ==="
-          cat /tmp/list.stdout
-          echo "=== stderr ==="
-          cat /tmp/list.stderr
-          echo "=== extracted rule names ==="
           grep -v '^$' /tmp/list.stdout | grep -v 'Building DAG' > /tmp/rules.txt || true
-          cat /tmp/rules.txt
           RULES=$(tr '\n' ' ' < /tmp/rules.txt)
           echo "rules=$RULES" >> $GITHUB_OUTPUT
+          echo "Rules: $RULES"
 
       - name: Render rulegraph to DOT
         shell: bash {0}
         run: |
           mkdir -p .github/assets
-          snakemake --snakefile workflow/Snakefile --rulegraph ${{ steps.rules.outputs.rules }} \
+          snakemake --snakefile workflow/Snakefile ${{ steps.rules.outputs.rules }} --rulegraph \
             > /tmp/rulegraph.dot 2> /tmp/rulegraph.err
           echo "exit code: $?"
           echo "=== DOT output ==="
@@ -63,10 +56,7 @@ jobs:
       - name: Convert DOT to SVG
         run: |
           dot -Tsvg /tmp/rulegraph.dot > .github/assets/rulegraph.svg
-          echo "=== SVG size ==="
           wc -c .github/assets/rulegraph.svg
-          echo "=== SVG head ==="
-          head -c 500 .github/assets/rulegraph.svg
 
       - name: Commit if changed
         run: |
