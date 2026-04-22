@@ -25,12 +25,15 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y graphviz
       - name: Install snakemake
         run: pip install snakemake pandas
-      - name: Create placeholder FASTQs for CI
+      - name: Create placeholder inputs for CI
         run: |
           mkdir -p .ci/fastqs
           touch .ci/fastqs/paradoxa.fastq.gz
           touch .ci/fastqs/binata.fastq.gz
           touch .ci/fastqs/roseana.fastq.gz
+          mkdir -p resources/external/genomescope2.0
+          touch resources/external/genomescope2.0/genomescope.R
+          touch resources/external/genomescope2.0/install.R
       - name: Render rulegraph
         run: |
           mkdir -p .github/assets
