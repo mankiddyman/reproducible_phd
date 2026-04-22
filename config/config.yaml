@@ -6,7 +6,7 @@ hifiasm:
 
 compleasm:
   lineage: eudicotyledons_odb12
-  library_path: resources/compleasm_lineages
+  library_path: mb_downloads 
 
 genomescope2:
   threads: 16

@@ -1,34 +1,35 @@
 rule assembly_stats_initial:
     input:
-        fa="results/{species}/assembly/initial/collapsed/{species}.fa"
+        fa="results/{species}/assembly/initial/{role}/{species}.fa"
     output:
-        stats="results/{species}/qc/assembly_stats/{species}.tsv"
+        stats="results/{species}/qc/assembly_stats/initial/{role}.tsv"
     log:
-        "logs/assembly_stats/{species}.log"
+        "logs/assembly_stats/{species}_{role}.log"
     conda:
         "../../envs/assembly_stats.yaml"
     shell:
         r"""
         set -euo pipefail
 
-        mkdir -p results/{wildcards.species}/qc/assembly_stats logs/assembly_stats
+        mkdir -p results/{wildcards.species}/qc/assembly_stats/initial logs/assembly_stats
 
         assembly-stats {input.fa} > {output.stats} 2> {log}
         """
 
 rule compleasm_initial:
     input:
-        fa="results/{species}/assembly/initial/collapsed/{species}.fa"
+        fa="results/{species}/assembly/initial/{role}/{species}.fa"
     output:
-        summary="results/{species}/qc/compleasm/{species}/summary.txt"
+        summary="results/{species}/qc/compleasm/initial/{role}/summary.txt"
     log:
-        "logs/compleasm/{species}.log"
+        "logs/compleasm/{species}_{role}.log"
     threads: 16
     conda:
         "../../envs/compleasm.yaml"
     params:
-        outdir="results/{species}/qc/compleasm/{species}",
-        lineage="eudicotyledons_odb12"
+        outdir="results/{species}/qc/compleasm/initial/{role}",
+        lineage=config["compleasm"]["lineage"],
+        library_path=config["compleasm"].get("library_path", "resources/compleasm_lineages")
     shell:
         r"""
         set -euo pipefail
@@ -39,6 +40,7 @@ rule compleasm_initial:
             -a {input.fa} \
             -o {params.outdir} \
             -l {params.lineage} \
+            -L {params.library_path} \
             -t {threads} \
             > {log} 2>&1
         """
