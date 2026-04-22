@@ -34,7 +34,7 @@ jobs:
       - name: Render rulegraph
         run: |
           mkdir -p .github/assets
-          snakemake --snakefile workflow/Snakefile --rulegraph \
+          snakemake --snakefile workflow/Snakefile --forceall --rulegraph \
             | dot -Tsvg > .github/assets/rulegraph.svg
 
       - name: Commit if changed
