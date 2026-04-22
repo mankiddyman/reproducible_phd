@@ -89,3 +89,5 @@ scratch/
 !.github/
 !.github/assets/
 !.github/assets/rulegraph.svg
+.ci/
+.ci/

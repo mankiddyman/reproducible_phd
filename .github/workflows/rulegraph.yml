@@ -1,5 +1,4 @@
 name: Update rulegraph
-
 on:
   push:
     branches: [main]
@@ -10,7 +9,6 @@ on:
       - 'rules/**'
       - '.github/workflows/rulegraph.yml'
   workflow_dispatch:
-
 jobs:
   render:
     runs-on: ubuntu-latest
@@ -20,23 +18,25 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: false
-
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-
       - name: Install graphviz
         run: sudo apt-get update && sudo apt-get install -y graphviz
-
       - name: Install snakemake
         run: pip install snakemake pandas
-
+      - name: Create placeholder FASTQs for CI
+        run: |
+          mkdir -p .ci/fastqs
+          touch .ci/fastqs/paradoxa.fastq.gz
+          touch .ci/fastqs/binata.fastq.gz
+          touch .ci/fastqs/roseana.fastq.gz
       - name: Render rulegraph
         run: |
           mkdir -p .github/assets
-          snakemake --snakefile workflow/Snakefile --forceall --rulegraph \
+          snakemake --snakefile workflow/Snakefile --rulegraph \
+            --config species_table=config/species.ci.csv \
             | dot -Tsvg > .github/assets/rulegraph.svg
-
       - name: Commit if changed
         run: |
           git config user.name  "github-actions[bot]"
