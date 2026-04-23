@@ -22,7 +22,7 @@
 <text text-anchor="middle" x="63" y="-87.5" font-family="sans" font-size="10.00">assembly_stats_initial</text>
 </g>
 <!-- 1&#45;&gt;0 -->
-<g id="edge3" class="edge">
+<g id="edge2" class="edge">
 <title>1&#45;&gt;0</title>
 <path fill="none" stroke="grey" stroke-width="2" d="M96.02,-71.88C115.93,-61.56 141.29,-48.4 161.75,-37.8"/>
 <polygon fill="grey" stroke="grey" stroke-width="2" points="163.5,-40.83 170.76,-33.12 160.27,-34.62 163.5,-40.83"/>
@@ -76,7 +76,7 @@
 <polygon fill="grey" stroke="grey" stroke-width="2" points="112.5,-262.1 109,-252.1 105.5,-262.1 112.5,-262.1"/>
 </g>
 <!-- 5&#45;&gt;0 -->
-<g id="edge2" class="edge">
+<g id="edge3" class="edge">
 <title>5&#45;&gt;0</title>
 <path fill="none" stroke="grey" stroke-width="2" d="M198,-71.7C198,-63.98 198,-54.71 198,-46.11"/>
 <polygon fill="grey" stroke="grey" stroke-width="2" points="201.5,-46.1 198,-36.1 194.5,-46.1 201.5,-46.1"/>
