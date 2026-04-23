@@ -36,10 +36,20 @@ jobs:
           touch resources/external/genomescope2.0/install.R
       - name: Render rulegraph
         run: |
+          set -euo pipefail
           mkdir -p .github/assets
           snakemake --snakefile workflow/Snakefile --rulegraph \
             --config species_table=config/species.ci.csv \
-            | dot -Tsvg > .github/assets/rulegraph.svg
+            > /tmp/rulegraph.dot
+          dot -Tsvg /tmp/rulegraph.dot > .github/assets/rulegraph.svg
+          test -s .github/assets/rulegraph.svg
+      - name: Debug on failure
+        if: failure()
+        run: |
+          echo "=== Snakemake dot output ==="
+          cat /tmp/rulegraph.dot 2>/dev/null || echo "(no dot file)"
+          echo "=== SVG file state ==="
+          ls -la .github/assets/rulegraph.svg 2>/dev/null || echo "(no svg)"
       - name: Commit if changed
         run: |
           git config user.name  "github-actions[bot]"
