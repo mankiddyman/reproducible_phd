@@ -11,3 +11,11 @@ compleasm:
 genomescope2:
   threads: 16
   hash_size: 20000000000
+
+blobtoolkit:
+  blastn_nal: /netscratch/dep_mercier/grp_marques/Aaryan/blastdb_local/ncbi/nt.nal
+  blastp_dmnd: /opt/share/blastdb/ncbi-diamond/nr.dmnd
+  blastx_dmnd: /opt/share/blastdb/ncbi-diamond/nr.dmnd
+  taxdump: /opt/share/blastdb/taxonomy/new_taxdump
+  nextflow_work_base: /scratch/blobtoolkit_work
+  nextflow_revision: 0.10.1
