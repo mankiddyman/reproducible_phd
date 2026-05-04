@@ -4,6 +4,7 @@ include: "rules/common.smk"
 include: "rules/assembly.smk"
 include: "rules/qc.smk"
 include: "rules/decisions.smk"
+include: "rules/blobtoolkit.smk"
 
 rule all:
     input:
@@ -17,5 +18,13 @@ rule all:
         ),
         expand(
             "results/{species}/qc/read/genomescope2/model/summary.txt",
+            species=SPECIES,
+        ),
+        expand(
+            "results/{species}/decisions.yaml",
+            species=SPECIES,
+        ),
+        expand(
+            "results/{species}/blobtoolkit/initial/.done",
             species=SPECIES,
         ),

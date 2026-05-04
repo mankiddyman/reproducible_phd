@@ -5,6 +5,4 @@ channels:
   - nodefaults
 dependencies:
   - jellyfish
-  - r-base
-  - r-optparse
-  - r-minpack.lm
+  - genomescope2
