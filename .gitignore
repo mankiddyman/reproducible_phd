@@ -91,3 +91,15 @@ scratch/
 !.github/assets/rulegraph.svg
 .ci/
 .ci/
+
+# Nextflow work directories
+nextflow_work/
+work/
+.nextflow/
+.nextflow.log*
+
+# Nextflow work directories
+nextflow_work/
+work/
+.nextflow/
+.nextflow.log*
