@@ -14,9 +14,9 @@ checkpoint compile_decisions:
     output:
         yaml="results/{species}/decisions.yaml",
     params:
-        exp_ploidy=lambda wc: int(species_df.loc[wc.species, "exp_ploidy"]),
+        exp_ploidy=lambda wc: (lambda v: int(v) if str(v).strip() not in ("", "nan") else "NA")(species_df.loc[wc.species, "exp_ploidy"]),
+        chr_number_2n=lambda wc: (lambda v: int(v) if str(v).strip() not in ("", "nan") else "NA")(species_df.loc[wc.species, "chr_number_2n"]),
         centromere=lambda wc: str(species_df.loc[wc.species, "centromere"]),
-        chr_number_2n=lambda wc: int(species_df.loc[wc.species, "chr_number_2n"]),
         notes=lambda wc: str(species_df.loc[wc.species, "notes"] or ""),
     log:
         "logs/decisions/{species}.log",

@@ -59,13 +59,24 @@ def parse_genomescope_summary(path: Path) -> dict:
                     return cols[-2].strip(), cols[-1].strip()
         return None
 
-    def clean_percent(s: str) -> float:
-        return float(s.replace("%", "").replace(",", "").strip())
+    def clean_percent(s: str):
+        cleaned = s.replace("%", "").replace(",", "").strip()
+        if cleaned in ("Inf", "-Inf", "NA", "nan", ""):
+            return None
+        try:
+            return float(cleaned)
+        except ValueError:
+            return None
 
-    def clean_bp(s: str) -> int:
-        # "1,398,083,161 bp" -> 1398083161
-        return int(s.replace(",", "").replace("bp", "").strip())
-
+    def clean_bp(s: str):
+        # "1,398,083,161 bp" -> 1398083161; "Inf bp" -> None
+        cleaned = s.replace(",", "").replace("bp", "").strip()
+        if cleaned in ("Inf", "-Inf", "NA", "nan", ""):
+            return None
+        try:
+            return int(cleaned)
+        except ValueError:
+            return None
     result: dict = {
         "ploidy_from_genomescope": int(ploidy_str) if ploidy_str else None,
         "k": int(k_str) if k_str else None,
@@ -147,19 +158,29 @@ def derive_decisions(
 
     is_het = het_max is not None and het_max > HETEROZYGOSITY_THRESHOLD_PCT
 
-    if exp_ploidy == 2:
+
+
+    try:
+        exp_ploidy_int = int(exp_ploidy)
+    except (TypeError, ValueError):
+        exp_ploidy_int = None
+
+    if exp_ploidy_int == 2:
         strategy = "phased_diploid"
-    elif exp_ploidy > 2:
+    elif exp_ploidy_int is not None and exp_ploidy_int > 2:
         strategy = "phased_polyploid_ragtag"
-    else:
+    elif exp_ploidy_int == 1:
         strategy = "primary_only"
+    else:
+        strategy = "unknown"
+
 
     decisions = {
         "species": species,
         "csv_inputs": {
-            "exp_ploidy": int(exp_ploidy),
+            "exp_ploidy": exp_ploidy_int,
             "centromere": centromere,
-            "chr_number_2n": int(chr_number_2n),
+            "chr_number_2n": (int(chr_number_2n) if str(chr_number_2n).strip() not in ("", "NA", "nan", "None") else None),
             "notes": notes or None,
         },
         "genome_estimates": gs,
@@ -182,9 +203,9 @@ def derive_decisions(
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--species", required=True)
-    ap.add_argument("--exp-ploidy", type=int, required=True)
+    ap.add_argument("--exp-ploidy", default=None)
     ap.add_argument("--centromere", default="")
-    ap.add_argument("--chr-number-2n", type=int, required=True)
+    ap.add_argument("--chr-number-2n", default=None)
     ap.add_argument("--notes", default="")
     ap.add_argument("--genomescope-summary", type=Path, required=True)
     ap.add_argument("--out", type=Path, required=True)
