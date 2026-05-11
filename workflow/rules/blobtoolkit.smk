@@ -36,7 +36,7 @@ rule make_blobtoolkit_params:
         blastn=config["blobtoolkit"]["blastn_nal"],
         blastp=config["blobtoolkit"]["blastp_dmnd"],
         blastx=config["blobtoolkit"]["blastx_dmnd"],
-        taxon=4747,
+        taxon=4363,
     shell:
         r"""
         set -euo pipefail
@@ -46,7 +46,6 @@ rule make_blobtoolkit_params:
 input: $(realpath {input.samplesheet})
 outdir: $(realpath -m {params.outdir})
 fasta: $(realpath {input.fasta})
-accession: draft
 align: true
 taxon: {params.taxon}
 taxdump: {params.taxdump}
@@ -74,9 +73,12 @@ rule run_blobtoolkit_initial:
     log:
         "logs/blobtoolkit/{species}_run.log",
     threads: 1
+    resources:
+        nextflow_slot=1,
     shell:
         r"""
         set -euo pipefail
+        export NXF_OPTS='-Xmx8g -Xms2g'
 
         mkdir -p "{params.outdir}" "{params.workdir}" logs/blobtoolkit
 

@@ -17,5 +17,5 @@ blobtoolkit:
   blastp_dmnd: /opt/share/blastdb/ncbi-diamond/nr.dmnd
   blastx_dmnd: /opt/share/blastdb/ncbi-diamond/nr.dmnd
   taxdump: /opt/share/blastdb/taxonomy/new_taxdump
-  nextflow_work_base: /scratch/blobtoolkit_work
+  nextflow_work_base: /netscratch/dep_mercier/grp_marques/Aaryan/reproducible_phd/nextflow_work
   nextflow_revision: 0.10.1
