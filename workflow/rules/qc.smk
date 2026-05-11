@@ -106,9 +106,7 @@ rule jellyfish_histo_genomescope:
 
 rule genomescope2_initial:
     input:
-        histo="results/{species}/qc/read/genomescope2/jellyfish/{species}.histo",
-        script="resources/external/genomescope2.0/genomescope.R",
-        installer="resources/external/genomescope2.0/install.R"
+        histo="results/{species}/qc/read/genomescope2/jellyfish/{species}.histo"
     output:
         summary="results/{species}/qc/read/genomescope2/model/summary.txt"
     params:
@@ -121,19 +119,6 @@ rule genomescope2_initial:
     shell:
         r"""
         set -euo pipefail
-
         mkdir -p {params.outdir} logs/genomescope2/model
-
-        # Install the local GenomeScope2 R package into the active conda env if needed.
-        if ! Rscript -e "suppressMessages(require('genomescope', quietly=TRUE))"; then
-            cd resources/external/genomescope2.0
-            Rscript install.R >> "$(realpath ../../{log})" 2>&1
-            cd - > /dev/null
-        fi
-
-        Rscript {input.script} \
-          -i {input.histo} \
-          -o {params.outdir} \
-          -k {params.k} \
-          > {log} 2>&1
+        genomescope2 -i {input.histo} -o {params.outdir} -k {params.k} > {log} 2>&1
         """
