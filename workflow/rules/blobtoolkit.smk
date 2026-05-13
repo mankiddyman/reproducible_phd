@@ -68,6 +68,7 @@ rule run_blobtoolkit_initial:
     params:
         outdir="results/{species}/blobtoolkit/initial/output",
         workdir=lambda wc: f"{config['blobtoolkit']['nextflow_work_base']}/{wc.species}",
+        launchdir=lambda wc: f"{config['blobtoolkit']['nextflow_work_base']}/{wc.species}_launch",
         revision=config["blobtoolkit"]["nextflow_revision"],
         nf_config="workflow/nextflow.config",
     log:
@@ -80,20 +81,30 @@ rule run_blobtoolkit_initial:
         set -euo pipefail
         export NXF_OPTS='-Xmx8g -Xms2g'
 
-        mkdir -p "{params.outdir}" "{params.workdir}" logs/blobtoolkit
+        # Resolve relative paths to absolute before changing directory
+        OUTDIR_ABS="$(realpath -m {params.outdir})"
+        WORKDIR_ABS="{params.workdir}"
+        LAUNCH_ABS="{params.launchdir}"
+        PARAMS_ABS="$(realpath {input.params_file})"
+        NF_CONFIG_ABS="$(realpath {params.nf_config})"
+        LOG_ABS="$(realpath -m {log})"
 
-        LOG_ABS="$(realpath {log})"
+        mkdir -p "$OUTDIR_ABS" "$WORKDIR_ABS" "$LAUNCH_ABS" "$(dirname $LOG_ABS)"
+
+        # Run nextflow from a per-species launch dir so each species gets
+        # its own .nextflow/ state, .nextflow.log, and history. Prevents
+        # session lock collisions when running multiple species in parallel.
+        cd "$LAUNCH_ABS"
 
         nextflow run sanger-tol/blobtoolkit \
             -r {params.revision} \
             -profile singularity \
-            -c {params.nf_config} \
-            -work-dir "{params.workdir}" \
+            -c "$NF_CONFIG_ABS" \
+            -work-dir "$WORKDIR_ABS" \
             -resume \
-            -params-file "{input.params_file}" \
+            -params-file "$PARAMS_ABS" \
             > "$LOG_ABS" 2>&1
         """
-
 
 rule blobtoolkit_all:
     input:
