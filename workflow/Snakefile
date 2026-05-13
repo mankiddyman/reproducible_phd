@@ -6,6 +6,7 @@ include: "rules/qc.smk"
 include: "rules/decisions.smk"
 include: "rules/blobtoolkit.smk"
 
+
 rule all:
     input:
         expand(
@@ -25,6 +26,6 @@ rule all:
             species=SPECIES,
         ),
         expand(
-            "results/{species}/blobtoolkit/initial/.done",
-            species=SPECIES,
+            "results/{species}/blobtoolkit/initial/{hap}/.done",
+            species=SPECIES, hap=HAPS,
         ),

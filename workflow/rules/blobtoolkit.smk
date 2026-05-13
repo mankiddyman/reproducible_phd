@@ -1,17 +1,30 @@
-# Stage 3: per-species blobtoolkit on the initial collapsed assembly.
+# Stage 3: per-species, per-haplotype blobtoolkit on the initial assembly.
 #
-# Wraps sanger-tol/blobtoolkit (Nextflow) as a Snakemake rule.
-# Parameters are passed via a YAML params file (Nextflow CLI cannot pass
+# Wraps sanger-tol/blobtoolkit (Nextflow) as a Snakemake rule, parameterized
+# by haplotype ({hap} ∈ {hap1, hap2}). Each (species, hap) gets isolated
+# nextflow work and launch directories so all combinations can run in parallel
+# without session lock collisions.
+#
+# Parameters are passed via a YAML params file because Nextflow CLI cannot pass
 # booleans cleanly when nf-schema strict validation is enabled — see
-# https://github.com/nextflow-io/nextflow/issues/6760).
+# https://github.com/nextflow-io/nextflow/issues/6760.
+
+# Constrain {hap} so it cannot match anything other than hap1 or hap2.
+# Without this, snakemake could try to match e.g. "collapsed" and explode the DAG.
+wildcard_constraints:
+    hap=r"hap[12]",
+
+
+HAPS = ["hap1", "hap2"]
+
 
 rule make_blobtoolkit_samplesheet:
     input:
         species_table=config["species_table"],
     output:
-        samplesheet="results/{species}/blobtoolkit/initial/samplesheet.csv",
+        samplesheet="results/{species}/blobtoolkit/initial/{hap}/samplesheet.csv",
     log:
-        "logs/blobtoolkit/{species}_samplesheet.log",
+        "logs/blobtoolkit/{species}_{hap}_samplesheet.log",
     shell:
         r"""
         set -euo pipefail
@@ -26,12 +39,12 @@ rule make_blobtoolkit_samplesheet:
 
 rule make_blobtoolkit_params:
     input:
-        fasta="results/{species}/assembly/initial/collapsed/{species}.fa",
-        samplesheet="results/{species}/blobtoolkit/initial/samplesheet.csv",
+        fasta="results/{species}/assembly/initial/{hap}/{species}.fa",
+        samplesheet="results/{species}/blobtoolkit/initial/{hap}/samplesheet.csv",
     output:
-        params="results/{species}/blobtoolkit/initial/params.yaml",
+        params="results/{species}/blobtoolkit/initial/{hap}/params.yaml",
     params:
-        outdir=lambda wc: f"results/{wc.species}/blobtoolkit/initial/output",
+        outdir=lambda wc: f"results/{wc.species}/blobtoolkit/initial/{wc.hap}/output",
         taxdump=config["blobtoolkit"]["taxdump"],
         blastn=config["blobtoolkit"]["blastn_nal"],
         blastp=config["blobtoolkit"]["blastp_dmnd"],
@@ -60,19 +73,19 @@ YAML
 
 rule run_blobtoolkit_initial:
     input:
-        fasta="results/{species}/assembly/initial/collapsed/{species}.fa",
-        samplesheet="results/{species}/blobtoolkit/initial/samplesheet.csv",
-        params_file="results/{species}/blobtoolkit/initial/params.yaml",
+        fasta="results/{species}/assembly/initial/{hap}/{species}.fa",
+        samplesheet="results/{species}/blobtoolkit/initial/{hap}/samplesheet.csv",
+        params_file="results/{species}/blobtoolkit/initial/{hap}/params.yaml",
     output:
-        sentinel=touch("results/{species}/blobtoolkit/initial/.done"),
+        sentinel=touch("results/{species}/blobtoolkit/initial/{hap}/.done"),
     params:
-        outdir="results/{species}/blobtoolkit/initial/output",
-        workdir=lambda wc: f"{config['blobtoolkit']['nextflow_work_base']}/{wc.species}",
-        launchdir=lambda wc: f"{config['blobtoolkit']['nextflow_work_base']}/{wc.species}_launch",
+        outdir=lambda wc: f"results/{wc.species}/blobtoolkit/initial/{wc.hap}/output",
+        workdir=lambda wc: f"{config['blobtoolkit']['nextflow_work_base']}/{wc.species}_{wc.hap}",
+        launchdir=lambda wc: f"{config['blobtoolkit']['nextflow_work_base']}/{wc.species}_{wc.hap}_launch",
         revision=config["blobtoolkit"]["nextflow_revision"],
         nf_config="workflow/nextflow.config",
     log:
-        "logs/blobtoolkit/{species}_run.log",
+        "logs/blobtoolkit/{species}_{hap}_run.log",
     threads: 1
     resources:
         nextflow_slot=1,
@@ -81,7 +94,6 @@ rule run_blobtoolkit_initial:
         set -euo pipefail
         export NXF_OPTS='-Xmx8g -Xms2g'
 
-        # Resolve relative paths to absolute before changing directory
         OUTDIR_ABS="$(realpath -m {params.outdir})"
         WORKDIR_ABS="{params.workdir}"
         LAUNCH_ABS="{params.launchdir}"
@@ -91,9 +103,9 @@ rule run_blobtoolkit_initial:
 
         mkdir -p "$OUTDIR_ABS" "$WORKDIR_ABS" "$LAUNCH_ABS" "$(dirname $LOG_ABS)"
 
-        # Run nextflow from a per-species launch dir so each species gets
-        # its own .nextflow/ state, .nextflow.log, and history. Prevents
-        # session lock collisions when running multiple species in parallel.
+        # Per-(species, hap) launch dir gives each nextflow invocation its own
+        # .nextflow/ state, history, and log — prevents session lock collisions
+        # when 14 combinations run in parallel.
         cd "$LAUNCH_ABS"
 
         nextflow run sanger-tol/blobtoolkit \
@@ -106,6 +118,10 @@ rule run_blobtoolkit_initial:
             > "$LOG_ABS" 2>&1
         """
 
+
 rule blobtoolkit_all:
     input:
-        expand("results/{species}/blobtoolkit/initial/.done", species=SPECIES),
+        expand(
+            "results/{species}/blobtoolkit/initial/{hap}/.done",
+            species=SPECIES, hap=HAPS,
+        ),

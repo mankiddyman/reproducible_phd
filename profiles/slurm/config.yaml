@@ -1,0 +1,78 @@
+# Snakemake SLURM profile for reproducible_phd
+# Usage: snakemake --profile profiles/slurm <targets>
+
+executor: slurm
+
+jobs: 100
+max-jobs-per-second: 5
+max-status-checks-per-second: 5
+
+use-conda: true
+
+restart-times: 3
+keep-going: true
+rerun-triggers:
+  - mtime
+
+default-resources:
+  slurm_account: grp_marques
+  slurm_partition: normal
+  mem_mb: 16000
+  runtime: 240
+  cpus_per_task: 4
+
+set-resources:
+  run_hifiasm:
+    mem_mb: 400000
+    cpus_per_task: 32
+    runtime: 1440
+    slurm_partition: normal
+
+  gfa_to_fasta:
+    mem_mb: 32000
+    cpus_per_task: 4
+    runtime: 120
+
+  standardize_initial_assembly:
+    mem_mb: 8000
+    cpus_per_task: 2
+    runtime: 60
+
+  compile_decisions:
+    mem_mb: 8000
+    cpus_per_task: 1
+    runtime: 30
+    slurm_partition: short
+
+  make_blobtoolkit_samplesheet:
+    mem_mb: 4000
+    cpus_per_task: 1
+    runtime: 15
+    slurm_partition: short
+
+  make_blobtoolkit_params:
+    mem_mb: 4000
+    cpus_per_task: 1
+    runtime: 15
+    slurm_partition: short
+
+  run_blobtoolkit_initial:
+    mem_mb: 16000
+    cpus_per_task: 4
+    runtime: 20160
+    slurm_partition: long
+
+  jellyfish_count:
+    mem_mb: 32000
+    cpus_per_task: 16
+    runtime: 240
+
+  jellyfish_histo_genomescope:
+    mem_mb: 16000
+    cpus_per_task: 4
+    runtime: 60
+
+  genomescope2_initial:
+    mem_mb: 8000
+    cpus_per_task: 2
+    runtime: 30

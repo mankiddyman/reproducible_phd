@@ -1,16 +1,21 @@
 rule run_hifiasm:
     input:
-        reads = get_fastqs
+        hifi_reads=get_fastqs,
     output:
-        done = "results/{species}/hifiasm/{species}.done",
-        collapsed_gfa = "results/{species}/hifiasm/{species}.bp.p_ctg.gfa",
-        hap1_gfa = "results/{species}/hifiasm/{species}.bp.hap1.p_ctg.gfa",
-        hap2_gfa = "results/{species}/hifiasm/{species}.bp.hap2.p_ctg.gfa",
-        rutg_gfa = "results/{species}/hifiasm/{species}.bp.r_utg.gfa",
+        done="results/{species}/hifiasm/{species}.done",
+        collapsed_gfa="results/{species}/hifiasm/{species}.p_ctg.gfa",
+        hap1_gfa="results/{species}/hifiasm/{species}.hap1.p_ctg.gfa",
+        hap2_gfa="results/{species}/hifiasm/{species}.hap2.p_ctg.gfa",
+        rutg_gfa="results/{species}/hifiasm/{species}.r_utg.gfa",
     params:
-        out_prefix = "results/{species}/hifiasm/{species}",
-        extra = config["hifiasm"].get("extra", ""),
-    threads: config["hifiasm"].get("threads", 16)
+        out_prefix="results/{species}/hifiasm/{species}",
+        hic_flags=lambda wc: hifiasm_hic_flags(wc.species),
+        extra=config["hifiasm"].get("extra", ""),
+    threads: 32
+    resources:
+        mem_mb=lambda wc, attempt: 400000 * attempt,
+        runtime=lambda wc, attempt: 1440 * attempt,
+    retries: 3
     log:
         "logs/hifiasm/{species}.log"
     benchmark:
@@ -19,9 +24,36 @@ rule run_hifiasm:
         "../../envs/hifiasm.yaml"
     shell:
         r"""
+        set -euo pipefail
         mkdir -p results/{wildcards.species}/hifiasm logs/hifiasm benchmarks/hifiasm
 
-        hifiasm -o {params.out_prefix} -t {threads} {params.extra} {input.reads} > {log} 2>&1
+        hifiasm \
+            -o {params.out_prefix} \
+            -t {threads} \
+            {params.extra} \
+            {params.hic_flags} \
+            {input.hifi_reads} \
+            > {log} 2>&1
+
+        # Hifiasm uses different output prefixes depending on mode (hic vs bp).
+        # Symlink whichever set exists to canonical names so downstream rules
+        # don't need to know which mode produced them.
+        prefix="{params.out_prefix}"
+        if [ -f "${{prefix}}.hic.p_ctg.gfa" ]; then
+            mode_infix="hic"
+        elif [ -f "${{prefix}}.bp.p_ctg.gfa" ]; then
+            mode_infix="bp"
+        else
+            echo "ERROR: hifiasm produced no recognised output" >&2
+            ls -la "${{prefix}}".*.gfa 2>&1 || true
+            exit 1
+        fi
+        echo "Detected hifiasm output mode: ${{mode_infix}}" >> {log}
+
+        ln -srf "${{prefix}}.${{mode_infix}}.p_ctg.gfa"       "${{prefix}}.p_ctg.gfa"
+        ln -srf "${{prefix}}.${{mode_infix}}.hap1.p_ctg.gfa"  "${{prefix}}.hap1.p_ctg.gfa"
+        ln -srf "${{prefix}}.${{mode_infix}}.hap2.p_ctg.gfa"  "${{prefix}}.hap2.p_ctg.gfa"
+        ln -srf "${{prefix}}.${{mode_infix}}.r_utg.gfa"       "${{prefix}}.r_utg.gfa"
 
         touch {output.done}
         """
@@ -30,10 +62,10 @@ rule run_hifiasm:
 rule standardize_initial_assembly:
     input:
         done="results/{species}/hifiasm/{species}.done",
-        collapsed_gfa_src="results/{species}/hifiasm/{species}.bp.p_ctg.gfa",
-        hap1_gfa_src="results/{species}/hifiasm/{species}.bp.hap1.p_ctg.gfa",
-        hap2_gfa_src="results/{species}/hifiasm/{species}.bp.hap2.p_ctg.gfa",
-        rutg_gfa_src="results/{species}/hifiasm/{species}.bp.r_utg.gfa",
+        collapsed_gfa_src="results/{species}/hifiasm/{species}.p_ctg.gfa",
+        hap1_gfa_src="results/{species}/hifiasm/{species}.hap1.p_ctg.gfa",
+        hap2_gfa_src="results/{species}/hifiasm/{species}.hap2.p_ctg.gfa",
+        rutg_gfa_src="results/{species}/hifiasm/{species}.r_utg.gfa",
     output:
         collapsed_gfa="results/{species}/assembly/initial/collapsed/{species}.gfa",
         hap1_gfa="results/{species}/assembly/initial/hap1/{species}.gfa",
