@@ -1,0 +1,7 @@
+rule test:
+    output: "_test/test_slurm_output.txt"
+    resources:
+        mem_mb=1000,
+        slurm_partition="short",
+        slurm_extra="'--time=00:05:00'",
+    shell: "echo hello from $(hostname) at $(date) > {output}; sleep 10"

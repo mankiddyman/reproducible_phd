@@ -14,7 +14,6 @@ rule run_hifiasm:
     threads: 32
     resources:
         mem_mb=lambda wc, attempt: 400000 * attempt,
-        runtime=lambda wc, attempt: 1440 * attempt,
     retries: 3
     log:
         "logs/hifiasm/{species}.log"

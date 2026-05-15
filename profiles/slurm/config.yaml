@@ -1,7 +1,12 @@
 # Snakemake SLURM profile for reproducible_phd
-# Usage: snakemake --profile profiles/slurm <targets>
+# NOTE: snakemake-executor-plugin-slurm v2.6.1 has a bug where `runtime`
+# values from profiles are divided by 60 (treated as seconds). Workaround:
+# we pass time limits via `slurm_extra: "'--time=HH:MM:SS'"` instead.
+# See https://github.com/snakemake/snakemake/issues/2696
 
 executor: slurm
+slurm-logdir: /netscratch/dep_mercier/grp_marques/Aaryan/reproducible_phd/snakemake_tmp/slurm_logs
+
 
 jobs: 100
 max-jobs-per-second: 5
@@ -18,61 +23,62 @@ default-resources:
   slurm_account: grp_marques
   slurm_partition: normal
   mem_mb: 16000
-  runtime: 240
   cpus_per_task: 4
+  slurm_extra: "'--time=04:00:00'"
+  tmpdir: "/netscratch/dep_mercier/grp_marques/Aaryan/reproducible_phd/snakemake_tmp"
 
 set-resources:
   run_hifiasm:
     mem_mb: 400000
     cpus_per_task: 32
-    runtime: 1440
     slurm_partition: normal
+    slurm_extra: "'--time=1-00:00:00'"
 
-  gfa_to_fasta:
+  gfa_to_fasta_initial:
     mem_mb: 32000
     cpus_per_task: 4
-    runtime: 120
+    slurm_extra: "'--time=02:00:00'"
 
   standardize_initial_assembly:
     mem_mb: 8000
     cpus_per_task: 2
-    runtime: 60
+    slurm_extra: "'--time=01:00:00'"
 
   compile_decisions:
     mem_mb: 8000
     cpus_per_task: 1
-    runtime: 30
     slurm_partition: short
+    slurm_extra: "'--time=00:15:00'"
 
   make_blobtoolkit_samplesheet:
     mem_mb: 4000
     cpus_per_task: 1
-    runtime: 15
     slurm_partition: short
+    slurm_extra: "'--time=00:15:00'"
 
   make_blobtoolkit_params:
     mem_mb: 4000
     cpus_per_task: 1
-    runtime: 15
     slurm_partition: short
+    slurm_extra: "'--time=00:15:00'"
 
   run_blobtoolkit_initial:
     mem_mb: 16000
     cpus_per_task: 4
-    runtime: 20160
     slurm_partition: long
+    slurm_extra: "'--time=14-00:00:00'"
 
   jellyfish_count:
     mem_mb: 32000
     cpus_per_task: 16
-    runtime: 240
+    slurm_extra: "'--time=04:00:00'"
 
   jellyfish_histo_genomescope:
     mem_mb: 16000
     cpus_per_task: 4
-    runtime: 60
+    slurm_extra: "'--time=01:00:00'"
 
   genomescope2_initial:
     mem_mb: 8000
     cpus_per_task: 2
-    runtime: 30
+    slurm_extra: "'--time=00:30:00'"
