@@ -25,7 +25,6 @@ rule all:
             "results/{species}/decisions.yaml",
             species=SPECIES,
         ),
-        expand(
-            "results/{species}/blobtoolkit/initial/{hap}/.done",
-            species=SPECIES, hap=HAPS,
-        ),
+        # Per-species decontamination targets (hap1+hap2 for diploids, p_utg for polyploids).
+        # See decontamination_targets() in common.smk for the logic.
+        all_decontamination_done(SPECIES),

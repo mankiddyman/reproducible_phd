@@ -101,3 +101,71 @@ def hifiasm_hic_flags(species: str) -> str:
     if not (r1 and r2):
         return ""
     return f"--h1 {','.join(r1)} --h2 {','.join(r2)}"
+
+
+# Roles evaluated by QC rules.
+# r_utg/p_utg are graph outputs; QC them on hap1/hap2/collapsed which are linear
+QC_ROLES = ["hap1", "hap2", "collapsed"]
+
+# Assembly outputs that exist for every species (post-hifiasm + standardize)
+ALL_ASSEMBLY_TYPES = ["collapsed", "hap1", "hap2", "r_utg", "p_utg"]
+
+
+def decontamination_targets(species: str) -> list[str]:
+    """Return which assembly file(s) blobtoolkit should be run on for a species.
+
+    Logic:
+      - ploidy <= 2 (or unknown): use hap1, hap2 (hifiasm's haplotype split is
+        meaningful for diploids).
+      - ploidy > 2 (polyploids): use p_utg (hifiasm's hap1/hap2 split forces
+        4+ alleles into 2 bins and is biologically meaningless; the processed
+        unitig graph retains the full information for downstream phasing).
+    """
+    ploidy_raw = species_df.loc[species, "exp_ploidy"]
+    try:
+        ploidy = int(ploidy_raw) if str(ploidy_raw).strip() else 2
+    except (ValueError, TypeError):
+        ploidy = 2  # safe default
+    if ploidy > 2:
+        return ["p_utg"]
+    return ["hap1", "hap2"]
+
+
+def all_decontamination_done(species_list: list[str]) -> list[str]:
+    """Expand .done files across (species, assembly) per-species decontamination targets."""
+    out = []
+    for sp in species_list:
+        for tgt in decontamination_targets(sp):
+            out.append(f"results/{sp}/blobtoolkit/initial/{tgt}/.done")
+    return out
+
+
+# ---- Decontamination target selection --------------------------------------
+
+def decontamination_targets(species: str) -> list[str]:
+    """Return which assembly file(s) blobtoolkit should be run on for a species.
+
+    Logic:
+      - ploidy <= 2 (or unknown): use hap1, hap2 (hifiasm's haplotype split is
+        meaningful for diploids).
+      - ploidy > 2 (polyploids): use p_utg (hifiasm's hap1/hap2 split forces
+        4+ alleles into 2 bins and is biologically meaningless; the processed
+        unitig graph retains full information for downstream phasing).
+    """
+    ploidy_raw = species_df.loc[species, "exp_ploidy"]
+    try:
+        ploidy = int(ploidy_raw) if str(ploidy_raw).strip() else 2
+    except (ValueError, TypeError):
+        ploidy = 2  # safe default
+    if ploidy > 2:
+        return ["p_utg"]
+    return ["hap1", "hap2"]
+
+
+def all_decontamination_done(species_list: list[str]) -> list[str]:
+    """Expand .done files across (species, assembly) per-species decontamination targets."""
+    return [
+        f"results/{sp}/blobtoolkit/initial/{tgt}/.done"
+        for sp in species_list
+        for tgt in decontamination_targets(sp)
+    ]

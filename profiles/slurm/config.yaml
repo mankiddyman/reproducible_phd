@@ -29,10 +29,9 @@ default-resources:
 
 set-resources:
   run_hifiasm:
-    mem_mb: 400000
     cpus_per_task: 32
     slurm_partition: normal
-    slurm_extra: "'--time=1-00:00:00'"
+    slurm_extra: "'--time=2-00:00:00 --exclude=hpc02'"
 
   gfa_to_fasta_initial:
     mem_mb: 32000
