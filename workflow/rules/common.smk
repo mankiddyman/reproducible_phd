@@ -104,9 +104,6 @@ def hifiasm_hic_flags(species: str) -> str:
 
 
 # Roles evaluated by QC rules.
-# r_utg/p_utg are graph outputs; QC them on hap1/hap2/collapsed which are linear
-QC_ROLES = ["hap1", "hap2", "collapsed"]
-
 # Assembly outputs that exist for every species (post-hifiasm + standardize)
 ALL_ASSEMBLY_TYPES = ["collapsed", "hap1", "hap2", "r_utg", "p_utg"]
 
@@ -217,4 +214,29 @@ def decontamination_qc_files(species_list: list[str], qc_type: str) -> list[str]
                 paths.append(f"results/{sp}/qc/assembly_stats/decontaminated/{tgt}.tsv")
             elif qc_type == "compleasm":
                 paths.append(f"results/{sp}/qc/compleasm/decontaminated/{tgt}/summary.txt")
+    return paths
+
+
+def qc_roles_for_species(species: str) -> list[str]:
+    """Per-species roles to run initial QC on. Skips meaningless hap1/hap2 for
+    polyploid species (which only have a real p_utg target).
+    
+    Returns: subset of {"collapsed", "hap1", "hap2"} appropriate for the species.
+    """
+    base = ["collapsed"]
+    if decontamination_targets(species) == ["p_utg"]:
+        # Polyploid: skip hap1/hap2 QC (empty placeholders, not real assemblies)
+        return base
+    return base + ["hap1", "hap2"]
+
+
+def qc_initial_files(species_list: list[str], qc_type: str) -> list[str]:
+    """Expand QC files only for the meaningful assembly roles per species."""
+    paths = []
+    for sp in species_list:
+        for role in qc_roles_for_species(sp):
+            if qc_type == "assembly_stats":
+                paths.append(f"results/{sp}/qc/assembly_stats/initial/{role}.tsv")
+            elif qc_type == "compleasm":
+                paths.append(f"results/{sp}/qc/compleasm/initial/{role}/summary.txt")
     return paths

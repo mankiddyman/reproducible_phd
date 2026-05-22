@@ -10,19 +10,15 @@ include: "rules/decontamination.smk"
 
 rule all:
     input:
-        # Initial-stage QC (existing)
-        expand(
-            "results/{species}/qc/assembly_stats/initial/{role}.tsv",
-            species=SPECIES, role=QC_ROLES,
-        ),
-        expand(
-            "results/{species}/qc/compleasm/initial/{role}/summary.txt",
-            species=SPECIES, role=QC_ROLES,
-        ),
+        # Initial-stage QC (ploidy-aware: skip hap1/hap2 QC for polyploids)
+        qc_initial_files(SPECIES, "assembly_stats"),
+        qc_initial_files(SPECIES, "compleasm"),
+        # Genomescope2 (reads-based, all species)
         expand(
             "results/{species}/qc/read/genomescope2/model/summary.txt",
             species=SPECIES,
         ),
+        # Decisions
         expand(
             "results/{species}/decisions.yaml",
             species=SPECIES,
