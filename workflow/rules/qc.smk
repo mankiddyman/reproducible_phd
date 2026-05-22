@@ -1,33 +1,45 @@
-rule assembly_stats_initial:
+# QC rules. The {stage} wildcard distinguishes assembly states:
+#   - initial: hifiasm output → standardize → gfa_to_fasta_initial
+#   - decontaminated: post-blobtoolkit filtering
+# 
+# Genomescope2 + jellyfish operate on reads, so they're stage-agnostic and
+# remain bound to read inputs.
+
+wildcard_constraints:
+    stage=r"initial|decontaminated",
+
+
+rule assembly_stats:
     input:
-        fa="results/{species}/assembly/initial/{role}/{species}.fa"
+        fa="results/{species}/assembly/{stage}/{role}/{species}.fa"
     output:
-        stats="results/{species}/qc/assembly_stats/initial/{role}.tsv"
+        stats="results/{species}/qc/assembly_stats/{stage}/{role}.tsv"
     log:
-        "logs/assembly_stats/{species}_{role}.log"
+        "logs/assembly_stats/{species}_{stage}_{role}.log"
     conda:
         "../../envs/assembly_stats.yaml"
     shell:
         r"""
         set -euo pipefail
 
-        mkdir -p results/{wildcards.species}/qc/assembly_stats/initial logs/assembly_stats
+        mkdir -p results/{wildcards.species}/qc/assembly_stats/{wildcards.stage} logs/assembly_stats
 
         assembly-stats {input.fa} > {output.stats} 2> {log}
         """
 
-rule compleasm_initial:
+
+rule compleasm:
     input:
-        fa="results/{species}/assembly/initial/{role}/{species}.fa"
+        fa="results/{species}/assembly/{stage}/{role}/{species}.fa"
     output:
-        summary="results/{species}/qc/compleasm/initial/{role}/summary.txt"
+        summary="results/{species}/qc/compleasm/{stage}/{role}/summary.txt"
     log:
-        "logs/compleasm/{species}_{role}.log"
+        "logs/compleasm/{species}_{stage}_{role}.log"
     threads: 16
     conda:
         "../../envs/compleasm.yaml"
     params:
-        outdir="results/{species}/qc/compleasm/initial/{role}",
+        outdir="results/{species}/qc/compleasm/{stage}/{role}",
         lineage=config["compleasm"]["lineage"],
         library_path=config["compleasm"].get("library_path", "resources/compleasm_lineages")
     shell:
@@ -46,6 +58,7 @@ rule compleasm_initial:
         """
 
 
+# Read-based QC (stage-agnostic) ---------------------------------------------
 
 rule jellyfish_count_genomescope:
     input:

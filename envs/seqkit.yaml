@@ -1,0 +1,8 @@
+name: seqkit
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - python=3.11
+  - seqkit=2.8.0
+  - pyyaml

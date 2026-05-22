@@ -5,10 +5,12 @@ include: "rules/assembly.smk"
 include: "rules/qc.smk"
 include: "rules/decisions.smk"
 include: "rules/blobtoolkit.smk"
+include: "rules/decontamination.smk"
 
 
 rule all:
     input:
+        # Initial-stage QC (existing)
         expand(
             "results/{species}/qc/assembly_stats/initial/{role}.tsv",
             species=SPECIES, role=QC_ROLES,
@@ -25,6 +27,12 @@ rule all:
             "results/{species}/decisions.yaml",
             species=SPECIES,
         ),
-        # Per-species decontamination targets (hap1+hap2 for diploids, p_utg for polyploids).
-        # See decontamination_targets() in common.smk for the logic.
+        # Initial blobtoolkit (per-species targets)
         all_decontamination_done(SPECIES),
+        # Decontaminated assemblies + QC on them
+        decontamination_targets_files(SPECIES, "fa"),
+        decontamination_qc_files(SPECIES, "assembly_stats"),
+        decontamination_qc_files(SPECIES, "compleasm"),
+        # Aggregated report
+        "results/aggregated/decontamination_report.html",
+        "results/aggregated/decontamination_summary.tsv",

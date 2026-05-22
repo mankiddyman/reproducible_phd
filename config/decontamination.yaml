@@ -1,0 +1,31 @@
+# Decontamination filter configuration.
+# 
+# Filter applied per (species, assembly) at the blobtoolkit "buscoregions_class"
+# rank. Contigs are kept if their class is in the effective keep_classes set
+# OR they are explicitly listed in force_keep_contigs.
+# 
+# Contigs in force_drop_contigs are always dropped regardless of class.
+# 
+# This file is version-controlled. The audit log produced by each
+# decontaminate_initial rule run records the effective filter applied, so
+# you can always trace why a contig was kept or dropped.
+
+defaults:
+  # Class-level taxonomic categories to retain.
+  # "no-hit" retains contigs with no BLAST hit (which includes genuine novel
+  # sequence as well as low-quality repetitive fragments).
+  # Magnoliopsida is the class for all eudicots including Drosera.
+  keep_classes:
+    - Magnoliopsida
+    - no-hit
+
+# Per-species overrides. Each species entry can specify:
+#   additional_keep_classes: list of class names to ADD to defaults.keep_classes
+#   force_drop_contigs: list of contig IDs to always drop (overrides class-keep)
+#   force_keep_contigs: list of contig IDs to always keep (overrides class-drop)
+species_overrides:
+  # Drosera_paradoxa:
+  #   force_drop_contigs: []
+  #   force_keep_contigs: []
+  # Drosera_roseana:
+  #   additional_keep_classes: []  # e.g., to add a related plant class

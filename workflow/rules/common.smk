@@ -169,3 +169,52 @@ def all_decontamination_done(species_list: list[str]) -> list[str]:
         for sp in species_list
         for tgt in decontamination_targets(sp)
     ]
+
+
+# ---- Decontamination config & helpers --------------------------------------
+
+def load_decontamination_config(path: str = "config/decontamination.yaml") -> dict:
+    """Load the decontamination filter config. Returns dict with 'defaults' and
+    'species_overrides'."""
+    p = Path(path)
+    if not p.is_file():
+        return {"defaults": {"keep_classes": ["Magnoliopsida", "no-hit"]},
+                "species_overrides": {}}
+    with p.open() as f:
+        cfg = yaml.safe_load(f) or {}
+    cfg.setdefault("defaults", {"keep_classes": ["Magnoliopsida", "no-hit"]})
+    cfg.setdefault("species_overrides", {})
+    if cfg["species_overrides"] is None:
+        cfg["species_overrides"] = {}
+    return cfg
+
+
+DECONTAMINATION_CONFIG = load_decontamination_config()
+
+
+def decontamination_targets_files(species_list: list[str], extension: str) -> list[str]:
+    """Expand per-(species, assembly) decontamination output files.
+    
+    For each species, uses decontamination_targets(species) to pick the right
+    assembly types (hap1/hap2 for diploids, p_utg for polyploids).
+    """
+    return [
+        f"results/{sp}/assembly/decontaminated/{tgt}/{sp}.{extension}"
+        for sp in species_list
+        for tgt in decontamination_targets(sp)
+    ]
+
+
+def decontamination_qc_files(species_list: list[str], qc_type: str) -> list[str]:
+    """Expand per-(species, assembly) QC files for decontaminated assemblies.
+    
+    qc_type: 'assembly_stats' or 'compleasm'
+    """
+    paths = []
+    for sp in species_list:
+        for tgt in decontamination_targets(sp):
+            if qc_type == "assembly_stats":
+                paths.append(f"results/{sp}/qc/assembly_stats/decontaminated/{tgt}.tsv")
+            elif qc_type == "compleasm":
+                paths.append(f"results/{sp}/qc/compleasm/decontaminated/{tgt}/summary.txt")
+    return paths
