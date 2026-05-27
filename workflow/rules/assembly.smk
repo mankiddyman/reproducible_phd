@@ -11,10 +11,22 @@ rule run_hifiasm:
     params:
         out_prefix="results/{species}/hifiasm/{species}",
         hic_flags=lambda wc: hifiasm_hic_flags(wc.species),
-        extra=config["hifiasm"].get("extra", ""),
+        # Scorpioides (autotetraploid): --n-hap 4 for cleaner p_utg graph.
+        # Doesn't affect correction/overlap stages, so cached .bin files
+        # remain reusable.
+        extra=lambda wc: (
+            "--n-hap 4" if wc.species == "Drosera_scorpioides"
+            else config["hifiasm"].get("extra", "")
+        ),
     threads: 32
     resources:
-        mem_mb=lambda wc, attempt: 500000 * attempt,
+        # Scorpioides is autotetraploid — needs 950GB for haplotype-resolved
+        # partition step. .ec.bin and .ovlp.*.bin caches from previous runs
+        # survive and let restarts skip ~30h of correction/overlap work.
+        mem_mb=lambda wc, attempt: (
+            950000 if wc.species == "Drosera_scorpioides"
+            else 500000 * attempt
+        ),
     retries: 3
     log:
         "logs/hifiasm/{species}.log"

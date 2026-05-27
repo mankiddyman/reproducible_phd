@@ -81,3 +81,4 @@ set-resources:
     mem_mb: 8000
     cpus_per_task: 2
     slurm_extra: "'--time=00:30:00'"
+scheduler: greedy

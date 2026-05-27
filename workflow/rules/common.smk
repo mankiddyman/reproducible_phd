@@ -112,21 +112,31 @@ def decontamination_targets(species: str) -> list[str]:
     """Return which assembly file(s) blobtoolkit should be run on for a species.
 
     Logic:
-      - ploidy <= 2 (or unknown): use hap1, hap2 (hifiasm's haplotype split is
-        meaningful for diploids).
-      - ploidy > 2 (polyploids): use p_utg (hifiasm's hap1/hap2 split forces
-        4+ alleles into 2 bins and is biologically meaningless; the processed
-        unitig graph retains the full information for downstream phasing).
+      - ploidy <= 2 (diploid or unknown): use hap1, hap2 — hifiasm's haplotype
+        split is biologically meaningful.
+      - ploidy > 2 AND has HiC: use hap1, hap2 — for autopolyploids the hap
+        outputs aren't strict phased haplotypes (4 alleles forced into 2 bins),
+        but the dual-pass scaffolding strategy (HapHiC + RagTag against curated
+        p_utg) needs decontaminated hap1+hap2 as the query. Output is a
+        chromosome-scale collapsed-polyploid representation. Example:
+        scorpioides (autotetraploid).
+      - ploidy > 2 AND no HiC: use p_utg — no scaffolding possible, freeze the
+        decontaminated processed unitig graph as the deliverable. Examples:
+        aliciae, tokaiensis.
     """
     ploidy_raw = species_df.loc[species, "exp_ploidy"]
     try:
         ploidy = int(ploidy_raw) if str(ploidy_raw).strip() else 2
     except (ValueError, TypeError):
         ploidy = 2  # safe default
-    if ploidy > 2:
-        return ["p_utg"]
-    return ["hap1", "hap2"]
 
+    if ploidy <= 2:
+        return ["hap1", "hap2"]
+
+    # Polyploid: branch on HiC availability
+    if hifiasm_hic_flags(species):
+        return ["hap1", "hap2"]
+    return ["p_utg"]
 
 def all_decontamination_done(species_list: list[str]) -> list[str]:
     """Expand .done files across (species, assembly) per-species decontamination targets."""
@@ -139,33 +149,6 @@ def all_decontamination_done(species_list: list[str]) -> list[str]:
 
 # ---- Decontamination target selection --------------------------------------
 
-def decontamination_targets(species: str) -> list[str]:
-    """Return which assembly file(s) blobtoolkit should be run on for a species.
-
-    Logic:
-      - ploidy <= 2 (or unknown): use hap1, hap2 (hifiasm's haplotype split is
-        meaningful for diploids).
-      - ploidy > 2 (polyploids): use p_utg (hifiasm's hap1/hap2 split forces
-        4+ alleles into 2 bins and is biologically meaningless; the processed
-        unitig graph retains full information for downstream phasing).
-    """
-    ploidy_raw = species_df.loc[species, "exp_ploidy"]
-    try:
-        ploidy = int(ploidy_raw) if str(ploidy_raw).strip() else 2
-    except (ValueError, TypeError):
-        ploidy = 2  # safe default
-    if ploidy > 2:
-        return ["p_utg"]
-    return ["hap1", "hap2"]
-
-
-def all_decontamination_done(species_list: list[str]) -> list[str]:
-    """Expand .done files across (species, assembly) per-species decontamination targets."""
-    return [
-        f"results/{sp}/blobtoolkit/initial/{tgt}/.done"
-        for sp in species_list
-        for tgt in decontamination_targets(sp)
-    ]
 
 
 # ---- Decontamination config & helpers --------------------------------------
