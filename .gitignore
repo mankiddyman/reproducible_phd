@@ -103,3 +103,4 @@ nextflow_work/
 work/
 .nextflow/
 .nextflow.log*
+versions.yml
