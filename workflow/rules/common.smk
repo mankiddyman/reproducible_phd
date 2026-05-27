@@ -1,6 +1,7 @@
 import pandas as pd
 from pathlib import Path
 import yaml
+import os
 
 species_df = pd.read_csv(config["species_table"]).fillna("")
 
@@ -103,7 +104,25 @@ def hifiasm_hic_flags(species: str) -> str:
     return f"--h1 {','.join(r1)} --h2 {','.join(r2)}"
 
 
+
 # Roles evaluated by QC rules.
+def chr_num_for_species(species: str) -> int:
+    """Number of pseudomolecules HapHiC should produce (= 2n).
+
+    HapHiC's CHR_num parameter is the total expected scaffold count, which for
+    a diploid is 2n (both haplotype copies as separate scaffolds), and for an
+    autopolyploid is similarly 2n (one scaffold per allele copy across all
+    haplotypes).
+    """
+    raw = species_df.loc[species, "chr_number_2n"]
+    try:
+        return int(raw)
+    except (ValueError, TypeError):
+        raise ValueError(
+            f"chr_number_2n missing or invalid for {species} (got {raw!r}). "
+            f"HapHiC requires this — set it in config/species.csv."
+        )
+
 # Assembly outputs that exist for every species (post-hifiasm + standardize)
 ALL_ASSEMBLY_TYPES = ["collapsed", "hap1", "hap2", "r_utg", "p_utg"]
 

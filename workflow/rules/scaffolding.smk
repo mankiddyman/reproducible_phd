@@ -1,0 +1,202 @@
+# Scaffolding rules: HapHiC + RagTag for species with HiC data.
+#
+# Strategy (per Aaryan's supervisor):
+#   Pass 1: HapHiC on p_utg → manual Juicebox curation → curated p_utg backbone
+#   Pass 2: RagTag (curated p_utg as ref, hap1+hap2 as query)
+#           → HapHiC on RagTag output → manual curation → final hap1+hap2
+#
+# This file currently implements pass 1 only. Pass 2 rules (ragtag + haphic
+# pass 2) will be added after manual curation reveals the pass 1 output works.
+#
+# Pass 1 input: initial p_utg (NOT decontaminated). Contaminant contigs are
+# small and end up as unplaced scaffolds, dropped during curation. The pass 1
+# output is used purely as a scaffolding reference for pass 2, where the
+# DECONTAMINATED hap1/hap2 are the actual query.
+
+
+HAPHIC_BIN = "methods/HapHiC/haphic"
+HAPHIC_FILTER_BAM = "methods/HapHiC/utils/filter_bam.py"
+HAPHIC_JUICER_POST = "methods/HapHiC/utils/juicer"
+
+
+def hic_r1_for_species(wildcards):
+    return hic_r1_files(wildcards.species)
+
+
+def hic_r2_for_species(wildcards):
+    return hic_r2_files(wildcards.species)
+
+
+rule scaffold_haphic_pass1:
+    """HapHiC pass 1: scaffold the initial p_utg into chromosome-scale scaffolds.
+    Output is ready for manual Juicebox curation.
+
+    User workflow after this rule completes:
+      1. cd results/{species}/scaffolding/pass1/04.build/
+      2. bash juicebox.sh  (already invoked by this rule, produces .hic + .assembly)
+      3. Open out_JBAT.hic + out_JBAT.assembly in Juicebox GUI
+      4. Edit, save as out_JBAT.review.assembly in the same dir
+      5. Re-run snakemake; the scaffold_haphic_pass1_post_juicebox rule will pick up
+    """
+    input:
+        ref="results/{species}/assembly/initial/p_utg/{species}.fa",
+        gfa="results/{species}/assembly/initial/p_utg/{species}.gfa",
+        hic_r1=hic_r1_for_species,
+        hic_r2=hic_r2_for_species,
+    output:
+        all_haps="results/{species}/scaffolding/pass1/04.build/all_haps.fa",
+        liftover_agp="results/{species}/scaffolding/pass1/04.build/out_JBAT.liftover.agp",
+        jbat_hic="results/{species}/scaffolding/pass1/04.build/out_JBAT.hic",
+        jbat_assembly="results/{species}/scaffolding/pass1/04.build/out_JBAT.assembly",
+        # Sentinel — marker that we finished, useful if downstream wants to
+        # depend on "pass 1 algorithmic part done" without listing all files.
+        done=touch("results/{species}/scaffolding/pass1/pass1.done"),
+    params:
+        chr_num=lambda wc: chr_num_for_species(wc.species),
+        workdir="results/{species}/scaffolding/pass1/work",
+        outdir="results/{species}/scaffolding/pass1",
+        ref_local=lambda wc: f"results/{wc.species}/scaffolding/pass1/work/{wc.species}.p_utg.fa",
+        gfa_local=lambda wc: f"results/{wc.species}/scaffolding/pass1/work/{wc.species}.p_utg.gfa",
+        haphic_bin=HAPHIC_BIN,
+        haphic_filter_bam=HAPHIC_FILTER_BAM,
+    threads: 40
+    resources:
+        mem_mb=120000,
+    conda:
+        "../../envs/haphic.yaml"
+    log:
+        "logs/scaffold_haphic_pass1/{species}.log"
+    benchmark:
+        "benchmarks/scaffold_haphic_pass1/{species}.tsv"
+    shell:
+        r"""
+        set -euo pipefail
+
+        # Absolute paths — we cd around a lot below, relative paths break.
+        REPO_ROOT=$(pwd)
+        LOG="$REPO_ROOT/{log}"
+        WORKDIR="$REPO_ROOT/{params.workdir}"
+        OUTDIR="$REPO_ROOT/{params.outdir}"
+
+        mkdir -p "$WORKDIR" "$OUTDIR" "$(dirname $LOG)"
+
+        # Copy ref + gfa to workdir (bwa index writes alongside the ref;
+        # results/{wildcards.species}/assembly/initial/p_utg/ is a managed
+        # dir we don't want to pollute with .bwt/.pac/etc index files)
+        cp -L "$REPO_ROOT/{input.ref}" "$WORKDIR/{wildcards.species}.p_utg.fa"
+        cp -L "$REPO_ROOT/{input.gfa}" "$WORKDIR/{wildcards.species}.p_utg.gfa"
+
+        cd "$WORKDIR"
+        REF="{wildcards.species}.p_utg.fa"
+        GFA="{wildcards.species}.p_utg.gfa"
+
+        # 1. Index reference
+        echo "=== bwa index ===" >> "$LOG"
+        bwa index "$REF" 2>> "$LOG"
+
+        # 2. Align each HiC pair → per-library BAM
+        R1_FILES=({input.hic_r1})
+        R2_FILES=({input.hic_r2})
+
+        if [ "${{#R1_FILES[@]}}" -ne "${{#R2_FILES[@]}}" ]; then
+            echo "ERROR: R1/R2 count mismatch" >&2
+            exit 1
+        fi
+
+        BAM_FILES=()
+        for i in "${{!R1_FILES[@]}}"; do
+            R1="${{R1_FILES[$i]}}"
+            R2="${{R2_FILES[$i]}}"
+            BAM="HIC_${{i}}.bam"
+            BAM_FILES+=("$BAM")
+            echo "=== bwa mem pair $((i+1))/${{#R1_FILES[@]}}: $R1 + $R2 ===" >> "$LOG"
+            bwa mem -t {threads} -5SP "$REF" "$R1" "$R2" 2>> "$LOG" \
+                | samblaster 2>> "$LOG" \
+                | samtools view -@ {threads} -S -h -b -F 3340 -o "$BAM" 2>> "$LOG"
+        done
+
+        # 3. Merge per-library BAMs
+        echo "=== samtools merge ===" >> "$LOG"
+        samtools merge -@ {threads} -f HIC.bam "${{BAM_FILES[@]}}" 2>> "$LOG"
+
+        # 4. Sort by read name
+        echo "=== samtools sort -n ===" >> "$LOG"
+        samtools sort -n -@ {threads} -o HiC.sorted.bam HIC.bam 2>> "$LOG"
+
+        # 5. HapHiC filter_bam
+        echo "=== HapHiC filter_bam ===" >> "$LOG"
+        "$REPO_ROOT/{params.haphic_filter_bam}" HiC.sorted.bam 2 --NM 3 --threads {threads} 2>> "$LOG" \
+            | samtools view -b -@ {threads} -o HiC.filtered.bam 2>> "$LOG"
+
+        # 6. Run HapHiC pipeline (in outdir, not workdir, so 01.cluster etc end up clean)
+        cd "$OUTDIR"
+        ln -srf "$WORKDIR/HiC.filtered.bam" ./HiC.filtered.bam
+        ln -srf "$WORKDIR/$REF" ./"$REF"
+        ln -srf "$WORKDIR/$GFA" ./"$GFA"
+
+        echo "=== haphic pipeline ===" >> "$LOG"
+        "$REPO_ROOT/{params.haphic_bin}" pipeline \
+            "$REF" HiC.filtered.bam {params.chr_num} \
+            --threads {threads} --processes {threads} \
+            --gfa "$GFA" \
+            2>> "$LOG"
+
+        # 7. juicebox.sh
+        echo "=== juicebox.sh ===" >> "$LOG"
+        cd "$OUTDIR/04.build/"
+        source /opt/share/software/scs/appStore/modules/init/profile.sh
+        module load java/jdk-17.0.10
+        bash juicebox.sh 2>> "$LOG"
+
+        echo "=== pass 1 algorithmic step complete ===" >> "$LOG"
+        echo "Next: open $OUTDIR/04.build/out_JBAT.hic in Juicebox," >> "$LOG"
+        echo "      edit, save as out_JBAT.review.assembly," >> "$LOG"
+        echo "      re-run snakemake → post_juicebox rule will run." >> "$LOG"
+        """       
+
+rule scaffold_haphic_pass1_post_juicebox:
+    """Apply user's manual Juicebox curation to produce FINAL.fa.
+
+    Input includes out_JBAT.review.assembly, which the USER manually creates
+    after curating in Juicebox. If this file is missing, snakemake fails with
+    a clear 'missing input' error. Re-run snakemake after creating the file.
+    """
+    input:
+        review_assembly="results/{species}/scaffolding/pass1/04.build/out_JBAT.review.assembly",
+        liftover_agp="results/{species}/scaffolding/pass1/04.build/out_JBAT.liftover.agp",
+        all_haps="results/{species}/scaffolding/pass1/04.build/all_haps.fa",
+    output:
+        final_fa="results/{species}/scaffolding/pass1/05.post_juicebox/out_JBAT.FINAL.fa",
+    params:
+        outdir="results/{species}/scaffolding/pass1/05.post_juicebox",
+        haphic_juicer=lambda wc: f"{os.getcwd()}/{HAPHIC_JUICER_POST}",
+    threads: 2
+    resources:
+        mem_mb=8000,
+    conda:
+        "../../envs/haphic.yaml"
+    log:
+        "logs/scaffold_haphic_pass1_post_juicebox/{species}.log"
+    shell:
+        r"""
+        set -euo pipefail
+        mkdir -p {params.outdir} logs/scaffold_haphic_pass1_post_juicebox
+
+        # Sanity: review.assembly should differ from the auto-generated assembly.
+        AUTO_ASSEMBLY="results/{wildcards.species}/scaffolding/pass1/04.build/out_JBAT.assembly"
+        if [ -f "$AUTO_ASSEMBLY" ] && cmp -s "$AUTO_ASSEMBLY" "{input.review_assembly}"; then
+            echo "WARNING: out_JBAT.review.assembly is byte-identical to out_JBAT.assembly" >> {log}
+            echo "         did you actually curate this in Juicebox? Continuing anyway." >> {log}
+        fi
+
+        cd {params.outdir}
+        {params.haphic_juicer} post \
+            -o out_JBAT \
+            ../04.build/$(basename {input.review_assembly}) \
+            ../04.build/$(basename {input.liftover_agp}) \
+            ../04.build/$(basename {input.all_haps}) \
+            2>> $(pwd)/../../../../{log}
+
+        echo "=== pass 1 post-juicebox complete ===" >> $(pwd)/../../../../{log}
+        echo "FINAL.fa is at: {output.final_fa}" >> $(pwd)/../../../../{log}
+        """

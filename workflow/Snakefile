@@ -6,6 +6,7 @@ include: "rules/qc.smk"
 include: "rules/decisions.smk"
 include: "rules/blobtoolkit.smk"
 include: "rules/decontamination.smk"
+include: "rules/scaffolding.smk"
 
 
 rule all:
