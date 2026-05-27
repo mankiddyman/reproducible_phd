@@ -1,0 +1,21 @@
+name: haphic
+channels:
+  - bioconda
+  - conda-forge
+dependencies:
+  - python=3.10
+  - mkl
+  - sparse_dot_mkl
+  - numpy<2.0.0
+  # Alignment + filtering tools needed before haphic pipeline
+  - bwa
+  - samtools
+  - samblaster
+  - pip
+  - pip:
+    - scipy
+    - matplotlib
+    - scikit-learn
+    - networkx
+    - pysam==0.20.0
+    - portion
