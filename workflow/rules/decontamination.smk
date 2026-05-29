@@ -16,8 +16,7 @@
 # come from decontamination_targets(species) in common.smk.
 
 wildcard_constraints:
-    assembly=r"hap[12]|p_utg",
-
+    assembly=r"hap\d+|p_utg",
 
 rule decontaminate_initial:
     input:

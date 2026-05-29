@@ -18,8 +18,7 @@
 # Constrain {assembly} so it cannot match anything other than hap1, hap2, p_utg.
 # Without this, snakemake could try to match e.g. "collapsed" and explode the DAG.
 wildcard_constraints:
-    assembly=r"hap[12]|p_utg",
-
+    assembly=r"hap\d+|p_utg",
 
 rule make_blobtoolkit_samplesheet:
     input:

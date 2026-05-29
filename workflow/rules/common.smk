@@ -103,7 +103,51 @@ def hifiasm_hic_flags(species: str) -> str:
         return ""
     return f"--h1 {','.join(r1)} --h2 {','.join(r2)}"
 
+def hap_count_for_species(species: str) -> int:
+    """Number of hifiasm haplotype outputs produced for a species.
 
+    Diploid → 2 (hap1, hap2).
+    Polyploid → matches exp_ploidy, because run_hifiasm passes --n-hap <ploidy>
+    for polyploid species, producing that many hapN outputs.
+
+    Currently only Drosera_scorpioides uses --n-hap 4 (set explicitly in
+    run_hifiasm). If we extend --n-hap to other polyploids later, this helper
+    must keep matching the hifiasm rule's behaviour.
+    """
+    ploidy_raw = species_df.loc[species, "exp_ploidy"]
+    try:
+        ploidy = int(ploidy_raw) if str(ploidy_raw).strip() else 2
+    except (ValueError, TypeError):
+        ploidy = 2
+    if ploidy <= 2:
+        return 2
+    # Polyploid: hifiasm gets --n-hap = ploidy (currently only scorpioides)
+    if species == "Drosera_scorpioides":
+        return ploidy  # = 4
+    # Other polyploids (aliciae, tokaiensis) don't use --n-hap, only get
+    # default hap1+hap2 (which are placeholders for them anyway).
+    return 2
+
+
+def hap_targets_for_species(species: str) -> list[str]:
+    """List of canonical hap target names for a species: ['hap1', 'hap2', ...].
+
+    Used by decontamination_targets() and scaffolding rules to enumerate the
+    per-hap files we produce.
+    """
+    return [f"hap{i}" for i in range(1, hap_count_for_species(species) + 1)]
+
+def hifiasm_role_gfa(species: str, role: str) -> str:
+    """Map a standardized role to its source hifiasm GFA path.
+
+    collapsed → {sp}.p_ctg.gfa; hapN → {sp}.hapN.p_ctg.gfa; r_utg/p_utg → {sp}.{role}.gfa.
+    """
+    base = f"results/{species}/hifiasm/{species}"
+    if role == "collapsed":
+        return f"{base}.p_ctg.gfa"
+    if role.startswith("hap"):
+        return f"{base}.{role}.p_ctg.gfa"
+    return f"{base}.{role}.gfa"
 
 # Roles evaluated by QC rules.
 def chr_num_for_species(species: str) -> int:
@@ -131,31 +175,26 @@ def decontamination_targets(species: str) -> list[str]:
     """Return which assembly file(s) blobtoolkit should be run on for a species.
 
     Logic:
-      - ploidy <= 2 (diploid or unknown): use hap1, hap2 — hifiasm's haplotype
-        split is biologically meaningful.
-      - ploidy > 2 AND has HiC: use hap1, hap2 — for autopolyploids the hap
-        outputs aren't strict phased haplotypes (4 alleles forced into 2 bins),
-        but the dual-pass scaffolding strategy (HapHiC + RagTag against curated
-        p_utg) needs decontaminated hap1+hap2 as the query. Output is a
-        chromosome-scale collapsed-polyploid representation. Example:
-        scorpioides (autotetraploid).
-      - ploidy > 2 AND no HiC: use p_utg — no scaffolding possible, freeze the
-        decontaminated processed unitig graph as the deliverable. Examples:
-        aliciae, tokaiensis.
+      - Has HiC: all hap files (hap1..hapN), N = hap_count_for_species. The
+        scaffolding strategy (HapHiC + RagTag against curated p_utg pass-1)
+        needs decontaminated haplotypes as the pass-2 query. For autotetraploids
+        like scorpioides this is hap1..hap4.
+      - No HiC: branch on ploidy. Diploids get hap1, hap2; polyploids freeze
+        p_utg (no scaffolding possible). Examples: aliciae, tokaiensis → p_utg.
     """
     ploidy_raw = species_df.loc[species, "exp_ploidy"]
     try:
         ploidy = int(ploidy_raw) if str(ploidy_raw).strip() else 2
     except (ValueError, TypeError):
-        ploidy = 2  # safe default
+        ploidy = 2
 
+    if hifiasm_hic_flags(species):
+        return hap_targets_for_species(species)
     if ploidy <= 2:
         return ["hap1", "hap2"]
-
-    # Polyploid: branch on HiC availability
-    if hifiasm_hic_flags(species):
-        return ["hap1", "hap2"]
     return ["p_utg"]
+
+
 
 def all_decontamination_done(species_list: list[str]) -> list[str]:
     """Expand .done files across (species, assembly) per-species decontamination targets."""

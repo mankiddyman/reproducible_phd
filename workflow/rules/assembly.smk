@@ -4,8 +4,6 @@ rule run_hifiasm:
     output:
         done="results/{species}/hifiasm/{species}.done",
         collapsed_gfa="results/{species}/hifiasm/{species}.p_ctg.gfa",
-        hap1_gfa="results/{species}/hifiasm/{species}.hap1.p_ctg.gfa",
-        hap2_gfa="results/{species}/hifiasm/{species}.hap2.p_ctg.gfa",
         rutg_gfa="results/{species}/hifiasm/{species}.r_utg.gfa",
         putg_gfa="results/{species}/hifiasm/{species}.p_utg.gfa",
     params:
@@ -67,103 +65,60 @@ rule run_hifiasm:
         ln -srf "${{prefix}}.${{mode_infix}}.r_utg.gfa"       "${{prefix}}.r_utg.gfa"
         ln -srf "${{prefix}}.${{mode_infix}}.p_utg.gfa"       "${{prefix}}.p_utg.gfa"
 
-        # hap1/hap2 are produced only if hifiasm finished the haplotype-resolved
-        # partition step. For polyploid species (and some OOM survivors) those
-        # files may not exist. In that case, create empty placeholders so
-        # snakemake's output declarations are satisfied. Downstream consumers
-        # for those targets are controlled by decontamination_targets(species):
-        # diploids consume hap1+hap2, polyploids consume p_utg, so an empty
-        # hap1/hap2 won't be requested by any rule for polyploid species.
-        for hap in hap1 hap2; do
-            src="${{prefix}}.${{mode_infix}}.${{hap}}.p_ctg.gfa"
-            dst="${{prefix}}.${{hap}}.p_ctg.gfa"
-            if [ -f "$src" ]; then
-                ln -srf "$src" "$dst"
-            else
-                echo "WARN: ${{hap}}.p_ctg.gfa not produced — creating empty placeholder for ${{hap}}" >> {log}
-                touch "$dst"
-            fi
+        # Symlink every haplotype hifiasm produced (hap1..hapN). N depends on
+        # --n-hap: diploids get 2, scorpioides (--n-hap 4) gets 4. The .done
+        # sentinel is the rule's contract; downstream standardize_initial keys
+        # off it and constructs per-hap source paths via hifiasm_role_gfa().
+        shopt -s nullglob
+        for src in "${{prefix}}.${{mode_infix}}".hap*.p_ctg.gfa; do
+            hap=$(basename "$src" | sed -E 's/.*\.(hap[0-9]+)\.p_ctg\.gfa/\1/')
+            ln -srf "$src" "${{prefix}}.${{hap}}.p_ctg.gfa"
         done
+        shopt -u nullglob
+
 
         touch {output.done}
         """
 
-
-rule standardize_initial_assembly:
+rule standardize_initial:
+    """Symlink one hifiasm GFA to a standardized per-role path.
+    One job per (species, role); role ∈ {collapsed, hapN, r_utg, p_utg}.
+    Depends on the hifiasm .done sentinel, so all hap outputs are guaranteed
+    present regardless of how many haplotypes --n-hap produced.
+    """
     input:
         done="results/{species}/hifiasm/{species}.done",
-        collapsed_gfa_src="results/{species}/hifiasm/{species}.p_ctg.gfa",
-        hap1_gfa_src="results/{species}/hifiasm/{species}.hap1.p_ctg.gfa",
-        hap2_gfa_src="results/{species}/hifiasm/{species}.hap2.p_ctg.gfa",
-        rutg_gfa_src="results/{species}/hifiasm/{species}.r_utg.gfa",
-        putg_gfa_src="results/{species}/hifiasm/{species}.p_utg.gfa",
     output:
-        collapsed_gfa="results/{species}/assembly/initial/collapsed/{species}.gfa",
-        hap1_gfa="results/{species}/assembly/initial/hap1/{species}.gfa",
-        hap2_gfa="results/{species}/assembly/initial/hap2/{species}.gfa",
-        rutg_gfa="results/{species}/assembly/initial/r_utg/{species}.gfa",
-        putg_gfa="results/{species}/assembly/initial/p_utg/{species}.gfa",
-        manifest="results/{species}/assembly/initial/manifest.tsv",
+        gfa="results/{species}/assembly/initial/{role}/{species}.gfa",
+    wildcard_constraints:
+        role=r"collapsed|hap\d+|r_utg|p_utg",
+    params:
+        src=lambda wc: hifiasm_role_gfa(wc.species, wc.role),
     log:
-        "logs/assembly_standardization/{species}.log"
+        "logs/assembly_standardization/{species}_{role}.log",
     shell:
         r"""
         set -euo pipefail
-
-        mkdir -p \
-          results/{wildcards.species}/assembly/initial/collapsed \
-          results/{wildcards.species}/assembly/initial/hap1 \
-          results/{wildcards.species}/assembly/initial/hap2 \
-          results/{wildcards.species}/assembly/initial/r_utg \
-          results/{wildcards.species}/assembly/initial/p_utg \
-          logs/assembly_standardization
-
-        ln -sf "$(realpath {input.collapsed_gfa_src})" {output.collapsed_gfa}
-        ln -sf "$(realpath {input.hap1_gfa_src})" {output.hap1_gfa}
-        ln -sf "$(realpath {input.hap2_gfa_src})" {output.hap2_gfa}
-        ln -sf "$(realpath {input.rutg_gfa_src})" {output.rutg_gfa}
-        ln -sf "$(realpath {input.putg_gfa_src})" {output.putg_gfa}
-
-        cat > {output.manifest} << EOF
-role	gfa
-collapsed	{output.collapsed_gfa}
-hap1	{output.hap1_gfa}
-hap2	{output.hap2_gfa}
-r_utg	{output.rutg_gfa}
-p_utg	{output.putg_gfa}
-EOF
-
-        echo "Standardized initial GFA outputs for {wildcards.species}" > {log}
+        mkdir -p "$(dirname {output.gfa})" logs/assembly_standardization
+        ln -sf "$(realpath {params.src})" {output.gfa}
+        echo "Standardized {wildcards.role} for {wildcards.species}" > {log}
         """
 
 
 rule gfa_to_fasta_initial:
+    """Convert a standardized GFA to FASTA. One job per (species, role)."""
     input:
-        collapsed_gfa="results/{species}/assembly/initial/collapsed/{species}.gfa",
-        hap1_gfa="results/{species}/assembly/initial/hap1/{species}.gfa",
-        hap2_gfa="results/{species}/assembly/initial/hap2/{species}.gfa",
-        rutg_gfa="results/{species}/assembly/initial/r_utg/{species}.gfa",
-        putg_gfa="results/{species}/assembly/initial/p_utg/{species}.gfa",
+        gfa="results/{species}/assembly/initial/{role}/{species}.gfa",
     output:
-        collapsed_fa="results/{species}/assembly/initial/collapsed/{species}.fa",
-        hap1_fa="results/{species}/assembly/initial/hap1/{species}.fa",
-        hap2_fa="results/{species}/assembly/initial/hap2/{species}.fa",
-        rutg_fa="results/{species}/assembly/initial/r_utg/{species}.fa",
-        putg_fa="results/{species}/assembly/initial/p_utg/{species}.fa",
+        fa="results/{species}/assembly/initial/{role}/{species}.fa",
+    wildcard_constraints:
+        role=r"collapsed|hap\d+|r_utg|p_utg",
     log:
-        "logs/gfa_to_fasta/{species}.log"
+        "logs/gfa_to_fasta/{species}_{role}.log",
     shell:
         r"""
         set -euo pipefail
         mkdir -p logs/gfa_to_fasta
-
-        # awk on an empty input produces an empty file, which is fine: nothing
-        # downstream will consume empty hap1/hap2 for polyploid species.
-        awk '/^S/{{print ">"$2"\n"$3}}' {input.collapsed_gfa} > {output.collapsed_fa}
-        awk '/^S/{{print ">"$2"\n"$3}}' {input.hap1_gfa}      > {output.hap1_fa}
-        awk '/^S/{{print ">"$2"\n"$3}}' {input.hap2_gfa}      > {output.hap2_fa}
-        awk '/^S/{{print ">"$2"\n"$3}}' {input.rutg_gfa}      > {output.rutg_fa}
-        awk '/^S/{{print ">"$2"\n"$3}}' {input.putg_gfa}      > {output.putg_fa}
-
-        echo "Converted initial GFA outputs to FASTA for {wildcards.species}" > {log}
+        awk '/^S/{{print ">"$2"\n"$3}}' {input.gfa} > {output.fa}
+        echo "Converted {wildcards.role} GFA→FASTA for {wildcards.species}" > {log}
         """
