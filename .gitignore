@@ -107,3 +107,4 @@ versions.yml
 
 # Cloned upstream tools (reproducibility via envs/haphic.git_commit + INSTALL_HAPHIC.md)
 methods/HapHiC/
+snakemake_tmp/
