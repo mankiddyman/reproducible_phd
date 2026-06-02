@@ -14,6 +14,5 @@ echo "starting at $(date)"
 # selection (decontamination_targets per species). Was previously a hardcoded
 # list of hap1/hap2 across all species, which spawned meaningless jobs for
 # polyploid species (scorpioides, aliciae, tokaiensis).
-snakemake --profile profiles/slurm --verbose --printshellcmds all
-
+snakemake --profile profiles/slurm --rerun-triggers mtime --verbose --printshellcmds all
 echo "finished at $(date)"

@@ -64,6 +64,46 @@ rule decontaminate_initial:
         """
 
 
+rule decontaminate_gfa:
+    """Filter the initial hap GFA to the contigs kept after decontamination,
+    producing a GFA matched to the decontaminated FASTA. Used as HapHiC --gfa
+    input for the onepass_gfa scaffolding strategy (the assembly graph carries
+    haplotype phasing).
+
+    Keeps: S-lines whose segment ∈ keep_contigs.list; L-lines whose BOTH
+    endpoints survive; A-lines whose contig survives; header (H) lines.
+    Drops links/records referencing removed (contaminant) contigs.
+    """
+    input:
+        gfa="results/{species}/assembly/initial/{assembly}/{species}.gfa",
+        keep="results/{species}/assembly/decontaminated/{assembly}/keep_contigs.list",
+    output:
+        gfa="results/{species}/assembly/decontaminated/{assembly}/{species}.gfa",
+    wildcard_constraints:
+        assembly=r"hap\d+",
+    log:
+        "logs/decontaminate_gfa/{species}_{assembly}.log",
+    threads: 1
+    resources:
+        mem_mb=8000,
+    shell:
+        r"""
+        set -euo pipefail
+        mkdir -p "$(dirname {output.gfa})" logs/decontaminate_gfa
+
+        awk '
+          NR==FNR {{ keep[$1]=1; next }}
+          /^S/    {{ if ($2 in keep) print; next }}
+          /^L/    {{ if (($2 in keep) && ($4 in keep)) print; next }}
+          /^A/    {{ if ($2 in keep) print; next }}
+          /^H/    {{ print; next }}
+                  {{ print }}
+        ' {input.keep} {input.gfa} > {output.gfa} 2> {log}
+
+        echo "decontaminate_gfa {wildcards.species}/{wildcards.assembly}: kept $(grep -c '^S' {output.gfa}) S, $(grep -c '^L' {output.gfa}) L, $(grep -c '^A' {output.gfa}) A lines" >> {log}
+        """
+
+
 rule aggregate_decontamination_report:
     input:
         # Depend on all per-species audit yamls (uses common.smk helper)

@@ -1,7 +1,8 @@
 name: ragtag
 channels:
-  - bioconda
   - conda-forge
+  - bioconda
 dependencies:
+  - python=3.10
   - ragtag
   - minimap2

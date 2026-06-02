@@ -167,6 +167,52 @@ def chr_num_for_species(species: str) -> int:
             f"HapHiC requires this — set it in config/species.csv."
         )
 
+
+def scaffolding_strategy(species: str) -> str:
+    """Per-species scaffolding strategy from config/species.csv.
+
+    Values:
+      - 'onepass_gfa'    : HapHiC on cat(decon hap1..hapN) with cat(decon gfas)
+                           as --gfa. For well-phased genomes where the assembly
+                           graph carries haplotype phasing (binata, paradoxa).
+      - 'twopass_ragtag' : pass-1 p_utg curation → RagTag → pass-2 HapHiC.
+                           For genomes where single-pass fails (scorpioides).
+      - 'none'           : no Hi-C scaffolding; freeze decontaminated assembly
+                           as-is (no-HiC species: roseana, aliciae, tokaiensis,
+                           filiformis).
+    """
+    val = str(species_df.loc[species, "scaffolding_strategy"]).strip()
+    valid = {"onepass_gfa", "twopass_ragtag", "none"}
+    if val not in valid:
+        raise ValueError(
+            f"scaffolding_strategy for {species} is {val!r}; "
+            f"must be one of {sorted(valid)}. Set it in config/species.csv."
+        )
+    return val
+
+
+def decon_hap_fastas(species: str) -> list[str]:
+    """Decontaminated hap FASTAs (hap1..hapN) — the one-pass HapHiC reference
+    inputs, concatenated by the scaffold rule. Only hap targets (p_utg excluded)."""
+    return [
+        f"results/{species}/assembly/decontaminated/{tgt}/{species}.fa"
+        for tgt in decontamination_targets(species)
+        if tgt.startswith("hap")
+    ]
+
+
+def decon_hap_gfas(species: str) -> list[str]:
+    """Decontaminated hap GFAs (hap1..hapN) — the one-pass --gfa inputs,
+    produced by decontaminate_gfa (gfa filtered to the kept contigs). Matched
+    1:1 with decon_hap_fastas."""
+    return [
+        f"results/{species}/assembly/decontaminated/{tgt}/{species}.gfa"
+        for tgt in decontamination_targets(species)
+        if tgt.startswith("hap")
+    ]
+
+
+
 # Assembly outputs that exist for every species (post-hifiasm + standardize)
 ALL_ASSEMBLY_TYPES = ["collapsed", "hap1", "hap2", "r_utg", "p_utg"]
 

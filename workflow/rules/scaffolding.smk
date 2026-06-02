@@ -426,3 +426,193 @@ rule scaffold_haphic_pass2_post_juicebox:
         echo "=== pass 2 post-juicebox complete ===" >> "$LOG"
         echo "FINAL.fa is at: {output.final_fa}" >> "$LOG"
         """
+
+
+# ════════════════════════════════════════════════════════════════════════
+# ONE-PASS (gfa-phased): HapHiC on cat(decon hap1..hapN) using the per-hap
+# decontaminated GFAs as a comma-separated --gfa list. HapHiC uses the graphs
+# to keep haplotypes in separate groups (removes inter-haplotype Hi-C links),
+# resolving all 2n scaffolds. For well-phased genomes where Hi-C alone cannot
+# split low-divergence haplotypes but the assembly graph can (binata, paradoxa).
+#
+# Selected per species via scaffolding_strategy(species) == "onepass_gfa".
+# ════════════════════════════════════════════════════════════════════════
+
+
+def decon_hap_fastas_input(wildcards):
+    return decon_hap_fastas(wildcards.species)
+
+
+def decon_hap_gfas_input(wildcards):
+    return decon_hap_gfas(wildcards.species)
+
+
+def onepass_gfa_arg(wildcards):
+    """Comma-separated decontaminated hap GFA paths for HapHiC --gfa.
+    HapHiC keeps each gfa's contigs in separate haplotype groups."""
+    return ",".join(decon_hap_gfas(wildcards.species))
+
+
+def haphic_onepass_extra(species: str) -> str:
+    """Extra HapHiC flags for one-pass, per species (default empty).
+    Populate config['haphic_onepass_extra'][species] if tuning is needed."""
+    return config.get("haphic_onepass_extra", {}).get(species, "")
+
+
+rule scaffold_haphic_onepass:
+    """One-pass HapHiC: scaffold cat(decon hap1..hapN) with per-hap decon GFAs
+    (comma-separated --gfa) for haplotype phasing. Output ready for Juicebox
+    curation (same downstream workflow as pass1)."""
+    input:
+        haps=decon_hap_fastas_input,
+        gfas=decon_hap_gfas_input,
+        hic_r1=hic_r1_for_species,
+        hic_r2=hic_r2_for_species,
+    output:
+        scaffolds_fa="results/{species}/scaffolding/onepass/04.build/scaffolds.fa",
+        raw_agp="results/{species}/scaffolding/onepass/04.build/scaffolds.raw.agp",
+        liftover_agp="results/{species}/scaffolding/onepass/04.build/out_JBAT.liftover.agp",
+        jbat_hic="results/{species}/scaffolding/onepass/04.build/out_JBAT.hic",
+        jbat_assembly="results/{species}/scaffolding/onepass/04.build/out_JBAT.assembly",
+        done=touch("results/{species}/scaffolding/onepass/onepass.done"),
+    params:
+        chr_num=lambda wc: chr_num_for_species(wc.species),
+        gfa_arg=onepass_gfa_arg,
+        extra=lambda wc: haphic_onepass_extra(wc.species),
+        workdir="results/{species}/scaffolding/onepass/work",
+        outdir="results/{species}/scaffolding/onepass",
+        haphic_bin=HAPHIC_BIN,
+        haphic_filter_bam=HAPHIC_FILTER_BAM,
+    threads: 40
+    resources:
+        mem_mb=120000,
+    conda:
+        HAPHIC_ENV
+    log:
+        "logs/scaffold_haphic_onepass/{species}.log"
+    benchmark:
+        "benchmarks/scaffold_haphic_onepass/{species}.tsv"
+    shell:
+        r"""
+        set -euo pipefail
+        REPO_ROOT=$(pwd)
+        LOG="$REPO_ROOT/{log}"
+        WORKDIR="$REPO_ROOT/{params.workdir}"
+        OUTDIR="$REPO_ROOT/{params.outdir}"
+        mkdir -p "$WORKDIR" "$OUTDIR" "$(dirname $LOG)"
+
+        # Concatenate decontaminated hap FASTAs → allhaps reference. hifiasm
+        # names contigs per-hap (h1tg/h2tg/...), so no header collisions.
+        cat {input.haps} > "$WORKDIR/{wildcards.species}.allhaps.fa"
+
+        # GFAs stay SEPARATE — passed as comma-separated list to --gfa so HapHiC
+        # treats each as its own haplotype. Build absolute paths.
+        GFA_ARG=""
+        for g in {input.gfas}; do
+            abs="$REPO_ROOT/$g"
+            if [ -z "$GFA_ARG" ]; then GFA_ARG="$abs"; else GFA_ARG="$GFA_ARG,$abs"; fi
+        done
+        echo "=== gfa arg: $GFA_ARG ===" >> "$LOG"
+
+        cd "$WORKDIR"
+        REF="{wildcards.species}.allhaps.fa"
+
+        echo "=== bwa index ===" >> "$LOG"
+        bwa index "$REF" 2>> "$LOG"
+
+        R1_FILES=({input.hic_r1})
+        R2_FILES=({input.hic_r2})
+        if [ "${{#R1_FILES[@]}}" -ne "${{#R2_FILES[@]}}" ]; then
+            echo "ERROR: R1/R2 count mismatch" >&2
+            exit 1
+        fi
+
+        BAM_FILES=()
+        for i in "${{!R1_FILES[@]}}"; do
+            R1="${{R1_FILES[$i]}}"; R2="${{R2_FILES[$i]}}"
+            BAM="HIC_${{i}}.bam"; BAM_FILES+=("$BAM")
+            echo "=== bwa mem pair $((i+1))/${{#R1_FILES[@]}} ===" >> "$LOG"
+            bwa mem -t {threads} -5SP "$REF" "$R1" "$R2" 2>> "$LOG" \
+                | samblaster 2>> "$LOG" \
+                | samtools view -@ {threads} -S -h -b -F 3340 -o "$BAM" 2>> "$LOG"
+        done
+
+        echo "=== samtools merge ===" >> "$LOG"
+        samtools merge -@ {threads} -f HIC.bam "${{BAM_FILES[@]}}" 2>> "$LOG"
+        echo "=== samtools sort -n ===" >> "$LOG"
+        samtools sort -n -@ {threads} -o HiC.sorted.bam HIC.bam 2>> "$LOG"
+        echo "=== HapHiC filter_bam ===" >> "$LOG"
+        "$REPO_ROOT/{params.haphic_filter_bam}" HiC.sorted.bam 2 --NM 3 --threads {threads} 2>> "$LOG" \
+            | samtools view -b -@ {threads} -o HiC.filtered.bam 2>> "$LOG"
+
+        cd "$OUTDIR"
+        ln -srf "$WORKDIR/HiC.filtered.bam" ./HiC.filtered.bam
+        ln -srf "$WORKDIR/$REF" ./"$REF"
+
+
+        # HapHiC's pipeline mkdir's 01.cluster..04.build and ABORTS if any exist
+        # (happens on any rerun). Clear the step dirs so reruns start clean.
+        rm -rf 01.cluster 02.reassign 03.sort 04.build
+
+        echo "=== haphic pipeline (onepass, gfa-phased, extra: {params.extra}) ===" >> "$LOG"
+        "$REPO_ROOT/{params.haphic_bin}" pipeline \
+            "$REF" HiC.filtered.bam {params.chr_num} \
+            --threads {threads} --processes {threads} \
+            --gfa "$GFA_ARG" \
+            {params.extra} \
+            2>> "$LOG"
+
+        echo "=== juicebox.sh ===" >> "$LOG"
+        cd "$OUTDIR/04.build/"
+        rm -f "{wildcards.species}.allhaps.fa"  # symlinked by juicebox.sh
+        export PATH=/usr/bin:$PATH  # system java 17 for juicer_tools
+        bash juicebox.sh 2>> "$LOG"
+
+        echo "=== onepass algorithmic step complete ===" >> "$LOG"
+        echo "Next: curate $OUTDIR/04.build/out_JBAT.hic in Juicebox," >> "$LOG"
+        echo "      save out_JBAT.review.assembly, rerun for post_juicebox." >> "$LOG"
+        """
+
+
+rule scaffold_haphic_onepass_post_juicebox:
+    """Apply manual Juicebox curation of one-pass → final scaffolds FASTA.
+    Requires user-created out_JBAT.review.assembly (snakemake fails clean if absent)."""
+    input:
+        review_assembly="results/{species}/scaffolding/onepass/04.build/out_JBAT.review.assembly",
+        liftover_agp="results/{species}/scaffolding/onepass/04.build/out_JBAT.liftover.agp",
+        ref_fa="results/{species}/scaffolding/onepass/work/{species}.allhaps.fa",
+    output:
+        final_fa="results/{species}/scaffolding/onepass/05.post_juicebox/out_JBAT.FINAL.fa",
+    params:
+        outdir="results/{species}/scaffolding/onepass/05.post_juicebox",
+        haphic_juicer=HAPHIC_JUICER_POST,
+    threads: 2
+    resources:
+        mem_mb=8000,
+    conda:
+        HAPHIC_ENV
+    log:
+        "logs/scaffold_haphic_onepass_post_juicebox/{species}.log"
+    shell:
+        r"""
+        set -euo pipefail
+        REPO_ROOT=$(pwd)
+        LOG="$REPO_ROOT/{log}"
+        OUTDIR="$REPO_ROOT/{params.outdir}"
+        mkdir -p "$OUTDIR" "$(dirname $LOG)"
+
+        AUTO_ASSEMBLY="results/{wildcards.species}/scaffolding/onepass/04.build/out_JBAT.assembly"
+        if [ -f "$AUTO_ASSEMBLY" ] && cmp -s "$AUTO_ASSEMBLY" "{input.review_assembly}"; then
+            echo "WARNING: review.assembly is byte-identical to out_JBAT.assembly" >> "$LOG"
+        fi
+
+        cd "$OUTDIR"
+        "$REPO_ROOT/{params.haphic_juicer}" post \
+            -o out_JBAT \
+            "$REPO_ROOT/{input.review_assembly}" \
+            "$REPO_ROOT/{input.liftover_agp}" \
+            "$REPO_ROOT/{input.ref_fa}" \
+            2>> "$LOG"
+        echo "=== onepass post-juicebox complete ===" >> "$LOG"
+        echo "FINAL.fa is at: {output.final_fa}" >> "$LOG"
+        """
