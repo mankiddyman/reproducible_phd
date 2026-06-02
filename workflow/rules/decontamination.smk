@@ -80,7 +80,7 @@ rule decontaminate_gfa:
     output:
         gfa="results/{species}/assembly/decontaminated/{assembly}/{species}.gfa",
     wildcard_constraints:
-        assembly=r"hap\d+",
+        assembly=r"hap\d+|p_utg",
     log:
         "logs/decontaminate_gfa/{species}_{assembly}.log",
     threads: 1

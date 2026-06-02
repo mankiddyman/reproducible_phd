@@ -180,9 +180,14 @@ def scaffolding_strategy(species: str) -> str:
       - 'none'           : no Hi-C scaffolding; freeze decontaminated assembly
                            as-is (no-HiC species: roseana, aliciae, tokaiensis,
                            filiformis).
+      - 'onepass_putg'   : pass-1 HapHiC on the DECONTAMINATED p_utg → curate →
+                           freeze. For genomes where hap-level phasing fails
+                           (binata: second HiFi library distorts the hap graph).
+                           p_utg is decontaminated first so the contamination
+                           report covers the actual scaffolding input.
     """
     val = str(species_df.loc[species, "scaffolding_strategy"]).strip()
-    valid = {"onepass_gfa", "twopass_ragtag", "none"}
+    valid = {"onepass_gfa","onepass_putg", "twopass_ragtag", "none"}
     if val not in valid:
         raise ValueError(
             f"scaffolding_strategy for {species} is {val!r}; "
@@ -228,6 +233,11 @@ def decontamination_targets(species: str) -> list[str]:
       - No HiC: branch on ploidy. Diploids get hap1, hap2; polyploids freeze
         p_utg (no scaffolding possible). Examples: aliciae, tokaiensis → p_utg.
     """
+    # onepass_putg species (e.g. binata) scaffold the DECONTAMINATED p_utg,
+    # so blobtoolkit + decontamination + the report must target p_utg.
+    if str(species_df.loc[species, "scaffolding_strategy"]).strip() == "onepass_putg":
+        return ["p_utg"]
+
     ploidy_raw = species_df.loc[species, "exp_ploidy"]
     try:
         ploidy = int(ploidy_raw) if str(ploidy_raw).strip() else 2
@@ -239,7 +249,6 @@ def decontamination_targets(species: str) -> list[str]:
     if ploidy <= 2:
         return ["hap1", "hap2"]
     return ["p_utg"]
-
 
 
 def all_decontamination_done(species_list: list[str]) -> list[str]:

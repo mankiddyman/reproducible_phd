@@ -26,6 +26,14 @@ def hic_r1_for_species(wildcards):
 def hic_r2_for_species(wildcards):
     return hic_r2_files(wildcards.species)
 
+def pass1_putg_dir(species: str) -> str:
+    """Directory holding the p_utg FASTA+GFA that pass-1 scaffolds.
+    onepass_putg species (binata) scaffold the DECONTAMINATED p_utg so the
+    contamination report covers the actual scaffolding input; all others use
+    the initial p_utg (contaminants dropped during curation)."""
+    stage = "decontaminated" if scaffolding_strategy(species) == "onepass_putg" else "initial"
+    return f"results/{species}/assembly/{stage}/p_utg"
+
 
 rule scaffold_haphic_pass1:
     """HapHiC pass 1: scaffold the initial p_utg into chromosome-scale scaffolds.
@@ -39,8 +47,8 @@ rule scaffold_haphic_pass1:
       5. Re-run snakemake; the scaffold_haphic_pass1_post_juicebox rule will pick up
     """
     input:
-        ref="results/{species}/assembly/initial/p_utg/{species}.fa",
-        gfa="results/{species}/assembly/initial/p_utg/{species}.gfa",
+        ref=lambda wc: f"{pass1_putg_dir(wc.species)}/{wc.species}.fa",
+        gfa=lambda wc: f"{pass1_putg_dir(wc.species)}/{wc.species}.gfa",
         hic_r1=hic_r1_for_species,
         hic_r2=hic_r2_for_species,
     output:
