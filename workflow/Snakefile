@@ -7,6 +7,7 @@ include: "rules/decisions.smk"
 include: "rules/blobtoolkit.smk"
 include: "rules/decontamination.smk"
 include: "rules/scaffolding.smk"
+include: "rules/finalize.smk"
 
 
 rule all:
