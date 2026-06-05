@@ -8,6 +8,7 @@ include: "rules/blobtoolkit.smk"
 include: "rules/decontamination.smk"
 include: "rules/scaffolding.smk"
 include: "rules/finalize.smk"
+include: "rules/annotation.smk"
 
 
 rule all:

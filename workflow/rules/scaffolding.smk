@@ -140,6 +140,14 @@ rule scaffold_haphic_pass1:
         ln -srf "$WORKDIR/HiC.filtered.bam" ./HiC.filtered.bam
         ln -srf "$WORKDIR/$REF" ./"$REF"
         ln -srf "$WORKDIR/$GFA" ./"$GFA"
+        
+
+
+        # HapHiC's pipeline mkdir's 01.cluster..04.build and ABORTS if any exist
+        # (happens on any rerun). Clear the step dirs so reruns start clean.
+        rm -rf 01.cluster 02.reassign 03.sort 04.build
+
+
 
         echo "=== haphic pipeline ===" >> "$LOG"
         "$REPO_ROOT/{params.haphic_bin}" pipeline \
@@ -371,6 +379,15 @@ rule scaffold_haphic_pass2:
         cd "$OUTDIR"
         ln -srf "$WORKDIR/HiC.filtered.bam" ./HiC.filtered.bam
         ln -srf "$WORKDIR/$REF" ./"$REF"
+
+
+        # HapHiC's pipeline mkdir's 01.cluster..04.build and ABORTS if any exist
+        # (happens on any rerun). Clear the step dirs so reruns start clean.
+        rm -rf 01.cluster 02.reassign 03.sort 04.build
+
+        
+
+
 
         echo "=== haphic pipeline (pass2, extra: {params.extra}) ===" >> "$LOG"
         "$REPO_ROOT/{params.haphic_bin}" pipeline \

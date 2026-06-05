@@ -25,3 +25,10 @@ blobtoolkit:
 # version-controlled. Empty/absent = no extra flags.
 haphic_pass2_extra:
   Drosera_binata: ""
+
+# ---- Annotation ----
+annotation_table: "config/annotation.csv"
+annotation:
+  tiberius_sif: "/netscratch/dep_mercier/grp_marques/Aaryan/methods/tiberius_latest.sif"
+  helixer_sif: "/netscratch/dep_mercier/grp_marques/Aaryan/methods/helixer_docker/helixer-docker_helixer_v0.3.6_cuda_12.2.2-cudnn8.sif"
+  gffread: "/opt/share/software/bin/gffread"
