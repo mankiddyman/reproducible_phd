@@ -30,6 +30,13 @@ message(sprintf("Scaffolds: scaffold_1..%d", n_scaff))
 
 dnass <- readDNAStringSet(asm)
 
+# Subset to chromosome-scale scaffolds BEFORE telomere-finding. Running
+# find_contigsGapsTelos on all (30k+) unplaced contigs hangs for many minutes;
+# we only plot scaffold_1..n anyway, so restrict up front (seconds not minutes).
+valid_scaffolds_pre <- paste0("scaffold_", seq_len(n_scaff))
+dnass <- dnass[names(dnass) %in% valid_scaffolds_pre]
+message(sprintf("Subset to %d chromosome scaffolds before telomere-finding", length(dnass)))
+
 # Plant telomere repeat (Arabidopsis-type), both strands.
 teloKmers <- c("TTTAGGG", "CCCTAAA")
 
@@ -56,7 +63,7 @@ palette <- colorRampPalette(c("blue", "green"))
 # window closes the instant the script ends.
 opened_x11 <- FALSE
 tryCatch({
-  x11(width = 10, height = 12)
+  x11(width = 10, height = 12, type = "cairo")
   opened_x11 <- TRUE
 }, error = function(e) {
   message("x11() failed (", conditionMessage(e),
