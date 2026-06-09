@@ -9,11 +9,15 @@ rule run_hifiasm:
     params:
         out_prefix="results/{species}/hifiasm/{species}",
         hic_flags=lambda wc: hifiasm_hic_flags(wc.species),
-        # Scorpioides (autotetraploid): --n-hap 4 for cleaner p_utg graph.
-        # Doesn't affect correction/overlap stages, so cached .bin files
-        # remain reusable.
+        # Scorpioides (autotetraploid): --n-hap 2 (collapsed). --n-hap 4 keeps 4
+        # near-identical haplotype copies that HapHiC cannot disambiguate via
+        # Hi-C contacts -> fragmented p_utg (59k contigs), poor scaffolding.
+        # --n-hap 2 collapses to a contiguous p_utg (33k contigs) that scaffolds
+        # cleanly into 16 pseudo-chromosomes (matches the validated 2025 run).
+        # Only affects purge/partition, not correction/overlap, so .bin caches
+        # are reused and the re-run skips the ~30h correction stage.
         extra=lambda wc: (
-            "--n-hap 4" if wc.species == "Drosera_scorpioides"
+            "--n-hap 2" if wc.species == "Drosera_scorpioides"
             else config["hifiasm"].get("extra", "")
         ),
     threads: 32

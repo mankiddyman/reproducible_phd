@@ -81,4 +81,25 @@ set-resources:
     mem_mb: 8000
     cpus_per_task: 2
     slurm_extra: "'--time=00:30:00'"
+  annotate_braker:
+    mem_mb: 400000
+    cpus_per_task: 64
+    slurm_partition: long
+    slurm_extra: "'--time=20-00:00:00'"
+  scaffold_haphic_pass1:
+    mem_mb: 120000
+    cpus_per_task: 40
+    slurm_extra: "'--time=2-00:00:00'"
+  scaffold_haphic_pass2:
+    mem_mb: 120000
+    cpus_per_task: 40
+    slurm_extra: "'--time=2-00:00:00'"
+  scaffold_haphic_onepass:
+    mem_mb: 120000
+    cpus_per_task: 40
+    slurm_extra: "'--time=2-00:00:00'"
+  scaffold_ragtag:
+    mem_mb: 64000
+    cpus_per_task: 40
+    slurm_extra: "'--time=2-00:00:00'"
 scheduler: greedy
