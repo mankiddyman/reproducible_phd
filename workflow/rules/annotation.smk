@@ -13,6 +13,18 @@
 
 annotation_df = pd.read_csv(config["annotation_table"]).fillna("").set_index("species_id", drop=False)
 
+# External (collaborator-assembled) genomes — enter the pipeline at the frozen
+# stage; no hifiasm/decon/scaffold. Driven by config/external_genomes.csv, kept
+# OUT of species.csv so the assembly DAG never sees them.
+external_genomes_df = pd.read_csv(config["external_genomes_table"]).fillna("").set_index("species_id", drop=False)
+
+def keep_n_scaffolds(species: str) -> int:
+    """Number of chromosome-scale scaffolds to retain from a collapsed external
+    genome = chr_number // ploidy (collapsed → one scaffold per chromosome)."""
+    row = external_genomes_df.loc[species]
+    return int(row["chr_number"]) // int(row["ploidy"])
+
+
 ANNOT_TIBERIUS_SIF = config["annotation"]["tiberius_sif"]
 ANNOT_HELIXER_SIF  = config["annotation"]["helixer_sif"]
 GFFREAD            = config["annotation"]["gffread"]
@@ -355,8 +367,9 @@ rule annotate_annevo:
         mkdir -p "$OUT" "$(dirname $LOG)"
         {PICK_GPU}
 
-        SCRATCH=$(mktemp -d /scratch/$USER/annevo_{wildcards.species}_XXXXXX 2>/dev/null \
-                  || mktemp -d /tmp/annevo_{wildcards.species}_XXXXXX)
+        TMPBASE="/netscratch/dep_mercier/grp_marques/Aaryan/tmp/annevo"
+        mkdir -p "$TMPBASE"
+        SCRATCH=$(mktemp -d "$TMPBASE/{wildcards.species}_XXXXXX")
         trap "rm -rf $SCRATCH" EXIT
 
         echo "=== ANNEVO {wildcards.species} (GPU $CUDA_VISIBLE_DEVICES) ===" >> "$LOG"
@@ -378,4 +391,68 @@ rule annotate_annevo:
 
         echo "=== annevo complete: {output.gff} ===" >> "$LOG"
         grep -c -P "\tgene\t" "$REPO_ROOT/{output.gff}" >> "$LOG" 2>&1 || true
+        """
+
+
+rule import_external_genome:
+    """Import a collaborator-assembled COLLAPSED genome into the pipeline at the
+    frozen stage. Keeps the top-N chromosome-scale scaffolds (N = chr_number //
+    ploidy), renames scaffold{k} -> chr{k}_collapsed (preserving the
+    collaborators' scaffold numbering, since their FASTA is length-sorted and
+    scaffold1..N == the N chromosomes), sorts output by chromosome number, and
+    retains the dropped small-contig tail as {species}_debris.fa.
+
+    These genomes have no HiFi/HiC accessible, so they skip
+    hifiasm/standardize/decon/scaffold and feed annotation directly."""
+    input:
+        src=lambda wc: external_genomes_df.loc[wc.species, "source_fasta"],
+    output:
+        chr="results/{species}/assembly_final/external_collapsed/{species}_chr.fa",
+        debris="results/{species}/assembly_final/external_collapsed/{species}_debris.fa",
+    params:
+        keep_n=lambda wc: keep_n_scaffolds(wc.species),
+    log:
+        "logs/import_external_genome/{species}.log",
+    shell:
+        r"""
+        set -euo pipefail
+        REPO_ROOT=$(pwd)
+        LOG="$REPO_ROOT/{log}"
+        OUT=$(dirname "$REPO_ROOT/{output.chr}")
+        mkdir -p "$OUT" "$(dirname $LOG)"
+        module load seqkit 2>/dev/null || true
+
+        N={params.keep_n}
+        SRC="{input.src}"
+        echo "=== import_external_genome {wildcards.species}: keep scaffold1..scaffold$N ===" > "$LOG"
+
+        # 1. kept set: scaffold1..scaffoldN -> renamed chr{{k}}_collapsed, sorted by k
+        : > "$OUT/_kept_unsorted.fa"
+        for k in $(seq 1 $N); do
+            samtools faidx "$SRC" "scaffold$k" \
+              | sed "1s/^>scaffold$k.*/>chr${{k}}_collapsed/" >> "$OUT/_kept_unsorted.fa"
+        done
+
+        # 2. sort kept records by chromosome number (chr1_collapsed..chrN_collapsed)
+        #    seqkit sort by natural name order -> human-readable frozen genome
+        seqkit sort --natural-order --by-name "$OUT/_kept_unsorted.fa" > "$REPO_ROOT/{output.chr}" 2>> "$LOG"
+        rm -f "$OUT/_kept_unsorted.fa"
+
+        # 3. debris = every scaffold NOT in the kept set (retain for the record)
+        KEEPLIST="$OUT/_keep.list"
+        for k in $(seq 1 $N); do echo "scaffold$k"; done > "$KEEPLIST"
+        ALL=$(cut -f1 "$SRC.fai" 2>/dev/null || (samtools faidx "$SRC" && cut -f1 "$SRC.fai"))
+        : > "$REPO_ROOT/{output.debris}"
+        echo "$ALL" | grep -vxF -f "$KEEPLIST" | while read s; do
+            [ -n "$s" ] && samtools faidx "$SRC" "$s" >> "$REPO_ROOT/{output.debris}"
+        done
+        rm -f "$KEEPLIST"
+
+        # 4. report
+        echo "kept scaffolds:" >> "$LOG"
+        grep -c "^>" "$REPO_ROOT/{output.chr}" >> "$LOG"
+        echo "debris scaffolds:" >> "$LOG"
+        grep -c "^>" "$REPO_ROOT/{output.debris}" >> "$LOG" 2>&1 || echo 0 >> "$LOG"
+        echo "=== chr names (should be chr1_collapsed..chr${{N}}_collapsed in order) ===" >> "$LOG"
+        grep "^>" "$REPO_ROOT/{output.chr}" >> "$LOG"
         """
