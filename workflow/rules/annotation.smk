@@ -369,6 +369,7 @@ rule annotate_annevo:
             -s 100 \
             -t {threads} \
             --batch_size 8 \
+            --num_workers 1 \
             --show_log >> "$LOG" 2>&1
 
         echo "=== AGAT standardize ===" >> "$LOG"

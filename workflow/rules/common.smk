@@ -123,7 +123,8 @@ def hap_count_for_species(species: str) -> int:
         return 2
     # Polyploid: hifiasm gets --n-hap = ploidy (currently only scorpioides)
     if species == "Drosera_scorpioides":
-        return ploidy  # = 4
+        return 2  # n-hap-2 reassembly produces hap1+hap2 only (was n-hap-4;
+                  # the 4-hap run fragmented the assembly, see assembly.smk run_hifiasm)
     # Other polyploids (aliciae, tokaiensis) don't use --n-hap, only get
     # default hap1+hap2 (which are placeholders for them anyway).
     return 2
