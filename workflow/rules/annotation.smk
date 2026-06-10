@@ -17,6 +17,9 @@ ANNOT_TIBERIUS_SIF = config["annotation"]["tiberius_sif"]
 ANNOT_HELIXER_SIF  = config["annotation"]["helixer_sif"]
 GFFREAD            = config["annotation"]["gffread"]
 AGAT_ENV           = config["annotation"]["agat_env"]
+ANNEVO_ENV         = config["annotation"]["annevo_env"]
+ANNEVO_REPO        = config["annotation"]["annevo_repo"]
+ANNEVO_MODEL       = config["annotation"]["annevo_model"]
 
 
 def frozen_chr_fasta(species: str) -> str:
@@ -316,5 +319,62 @@ INI
             -g "$WORK/braker_raw.gff3" -o "$REPO_ROOT/{output.gff}" >> "$LOG" 2>&1
 
         echo "=== braker complete: {output.gff} ===" >> "$LOG"
+        grep -c -P "\tgene\t" "$REPO_ROOT/{output.gff}" >> "$LOG" 2>&1 || true
+        """
+
+
+rule annotate_annevo:
+    """ANNEVO v2.3.2 whole-genome ab-initio annotation on GPU (Magnoliopsida
+    model), AGAT-standardized. Whole-genome is safe: ANNEVO embeds the seqname
+    in gene IDs (NC_xxx-g1) so IDs are globally unique across sequences (like
+    Helixer, unlike Tiberius). Uses node-scratch --tmp_path for the per-run
+    model_prediction.h5 (GitHub #13: fills disk on big genomes otherwise)."""
+    input:
+        genome=lambda wc: frozen_chr_fasta(wc.species),
+    output:
+        gff="results/{species}/annotation/annevo/{species}.annevo.gff3",
+    params:
+        outdir="results/{species}/annotation/annevo",
+        env=ANNEVO_ENV,
+        repo=ANNEVO_REPO,
+        model=ANNEVO_MODEL,
+        lineage=lambda wc: annotation_df.loc[wc.species, "annevo_lineage"],
+        agat_env=AGAT_ENV,
+    resources:
+        gpu=1,
+        mem_mb=64000,
+    threads: 16
+    log:
+        "logs/annotate_annevo/{species}.log",
+    shell:
+        r"""
+        set -euo pipefail
+        REPO_ROOT=$(pwd)
+        LOG="$REPO_ROOT/{log}"
+        OUT="$REPO_ROOT/{params.outdir}"
+        mkdir -p "$OUT" "$(dirname $LOG)"
+        {PICK_GPU}
+
+        SCRATCH=$(mktemp -d /scratch/$USER/annevo_{wildcards.species}_XXXXXX 2>/dev/null \
+                  || mktemp -d /tmp/annevo_{wildcards.species}_XXXXXX)
+        trap "rm -rf $SCRATCH" EXIT
+
+        echo "=== ANNEVO {wildcards.species} (GPU $CUDA_VISIBLE_DEVICES) ===" >> "$LOG"
+        PYTHONNOUSERSITE=1 "{params.env}/bin/python" "{params.repo}/annotation.py" \
+            -g "$REPO_ROOT/{input.genome}" \
+            -m "{params.repo}/{params.model}" \
+            -l {params.lineage} \
+            -o "$OUT/annevo_raw.gff3" \
+            --tmp_path "$SCRATCH" \
+            -s 100 \
+            -t {threads} \
+            --batch_size 8 \
+            --show_log >> "$LOG" 2>&1
+
+        echo "=== AGAT standardize ===" >> "$LOG"
+        micromamba run -p "{params.agat_env}" agat_convert_sp_gxf2gxf.pl \
+            -g "$OUT/annevo_raw.gff3" -o "$REPO_ROOT/{output.gff}" >> "$LOG" 2>&1
+
+        echo "=== annevo complete: {output.gff} ===" >> "$LOG"
         grep -c -P "\tgene\t" "$REPO_ROOT/{output.gff}" >> "$LOG" 2>&1 || true
         """
