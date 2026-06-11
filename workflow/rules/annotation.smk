@@ -510,3 +510,35 @@ rule filter_braker:
         cat "$REPO_ROOT/{output.stats}" >> "$LOG"
         echo "=== filter_braker complete ===" >> "$LOG"
         """
+
+
+# tool -> standardized GFF3 path. ab-initio: {sp}.{tool}.gff3; filtered braker special-cased.
+def annotation_tool_gff3(species, tool):
+    if tool == "braker_filtered":
+        return f"results/{species}/annotation/braker/{species}.braker_filtered.gff3"
+    return f"results/{species}/annotation/{tool}/{species}.{tool}.gff3"
+
+
+rule extract_proteins:
+    """Extract protein FASTA from a tool's GFF3 + frozen genome (AGAT -p).
+    Feeds OMArk + compleasm. tool in {annevo, helixer, tiberius, braker_filtered}."""
+    input:
+        gff=lambda wc: annotation_tool_gff3(wc.species, wc.tool),
+        genome=lambda wc: frozen_chr_fasta(wc.species),
+    output:
+        faa="results/{species}/annotation/{tool}/{species}.{tool}.proteins.fa",
+    params:
+        agat_env=AGAT_ENV,
+    wildcard_constraints:
+        tool="annevo|helixer|tiberius|braker_filtered",
+    log:
+        "logs/extract_proteins/{species}.{tool}.log",
+    shell:
+        r"""
+        set -euo pipefail
+        mkdir -p "$(dirname {log})"
+        micromamba run -p "{params.agat_env}" agat_sp_extract_sequences.pl \
+            -g "{input.gff}" -f "{input.genome}" -p \
+            -o "{output.faa}" > "{log}" 2>&1
+        echo "proteins: $(grep -c '^>' {output.faa})" >> "{log}"
+        """
