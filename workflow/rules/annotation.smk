@@ -73,9 +73,9 @@ rule annotate_split:
 
 rule annotate_tiberius:
     """Tiberius WHOLE-GENOME gene prediction on GPU (angiosperms model, unmasked
-    input), AGAT-standardized. Whole-genome (not per-chr) gives globally-unique
-    gene IDs; per-chr restarts IDs at g1 each chromosome -> AGAT merges unrelated
-    genes across chromosomes on naive cat."""
+    input), AGAT-standardized. Tiberius restarts gene IDs (g1,g2..) per scaffold even in whole-genome mode,
+    so IDs collide across scaffolds; we prefix the scaffold name onto gene_id/
+    transcript_id before AGAT-standardizing to make them globally unique."""
     input:
         genome=lambda wc: frozen_chr_fasta(wc.species),
     output:
@@ -110,9 +110,22 @@ rule annotate_tiberius:
             --out "{params.outdir}/tiberius_raw.gtf" \
             2>> "$LOG"
 
+        # Tiberius numbers genes per-scaffold (g1,g2.. restart each sequence),
+        # even in whole-genome mode. Naive use collides IDs across scaffolds
+        # (e.g. g1104.t1 on 480 scaffolds) -> AGAT merges unrelated genes into
+        # giant chimeras. Prefix scaffold (col1) onto gene_id/transcript_id to
+        # make them globally unique before standardizing.
+        echo "=== namespace IDs by scaffold ===" >> "$LOG"
+        awk -F'\t' 'BEGIN{{OFS="\t"}} /^#/{{print; next}} {{
+            scaf=$1
+            gsub(/gene_id "/, "gene_id \"" scaf "_", $9)
+            gsub(/transcript_id "/, "transcript_id \"" scaf "_", $9)
+            print
+        }}' "{params.outdir}/tiberius_raw.gtf" > "{params.outdir}/tiberius_raw.namespaced.gtf"
+
         echo "=== AGAT standardize ===" >> "$LOG"
         micromamba run -p "{params.agat_env}" agat_convert_sp_gxf2gxf.pl \
-            -g "{params.outdir}/tiberius_raw.gtf" \
+            -g "{params.outdir}/tiberius_raw.namespaced.gtf" \
             -o "$REPO_ROOT/{output.gff}" >> "$LOG" 2>&1
 
         echo "=== tiberius complete: {output.gff} ===" >> "$LOG"
