@@ -456,3 +456,57 @@ rule import_external_genome:
         echo "=== chr names (should be chr1_collapsed..chr${{N}}_collapsed in order) ===" >> "$LOG"
         grep "^>" "$REPO_ROOT/{output.chr}" >> "$LOG"
         """
+
+
+rule filter_braker:
+    """Filter raw BRAKER GFF3 to evidence-supported transcripts using BRAKER's
+    own gene_support.tsv. Keep a transcript if:
+      - multi-exon  & >=1 intron supported by RNA/protein, OR
+      - single-exon & its exon supported by RNA/protein.
+    Drops the unsupported single-exon over-prediction reservoir (TE ORFs,
+    fragments). 'any' = RNA or protein evidence (rescues real-but-unexpressed
+    genes); a parallel rnaseq-only count is logged for sensitivity.
+    Produces the production GFF3 for RNA species (Part B)."""
+    input:
+        gff="results/{species}/annotation/braker/{species}.braker.gff3",
+        support="results/{species}/annotation/braker/output/{species}/results/gene_support.tsv",
+        awk="workflow/scripts/filter_braker_by_support.awk",
+    output:
+        gff="results/{species}/annotation/braker/{species}.braker_filtered.gff3",
+        stats="results/{species}/annotation/braker/{species}.braker_filter_stats.tsv",
+    params:
+        agat_env=AGAT_ENV,
+        mode="any",
+    log:
+        "logs/filter_braker/{species}.log",
+    shell:
+        r"""
+        set -euo pipefail
+        REPO_ROOT=$(pwd)
+        LOG="$REPO_ROOT/{log}"; mkdir -p "$(dirname $LOG)"
+        TMP=$(mktemp -d)
+        trap "rm -rf $TMP" EXIT
+
+        echo "=== filter_braker {wildcards.species} (mode={params.mode}) ===" > "$LOG"
+
+        # 1. filter to supported transcripts
+        awk -f {input.awk} -v mode={params.mode} "{input.support}" "{input.gff}" > "$TMP/filtered.gff3" 2>> "$LOG"
+
+        # 2. AGAT re-standardize
+        micromamba run -p "{params.agat_env}" agat_convert_sp_gxf2gxf.pl \
+            -g "$TMP/filtered.gff3" -o "$REPO_ROOT/{output.gff}" >> "$LOG" 2>&1
+
+        # 3. stats: raw vs filtered(any) vs filtered(rnaseq)
+        cntg () {{ awk -F'\t' -v f="$1" '$3==f' "$2" | wc -l; }}
+        RAW_G=$(cntg gene "{input.gff}"); RAW_T=$(cntg transcript "{input.gff}")
+        FA_G=$(cntg gene "$REPO_ROOT/{output.gff}"); FA_T=$(cntg transcript "$REPO_ROOT/{output.gff}")
+        FR_T=$(awk -f {input.awk} -v mode=rnaseq "{input.support}" "{input.gff}" | awk -F'\t' '$3=="transcript"' | wc -l)
+        FR_G=$(awk -f {input.awk} -v mode=rnaseq "{input.support}" "{input.gff}" | awk -F'\t' '$3=="gene"' | wc -l)
+        {{
+          echo -e "metric\traw\tfiltered_any\tfiltered_rnaseq"
+          echo -e "genes\t$RAW_G\t$FA_G\t$FR_G"
+          echo -e "transcripts\t$RAW_T\t$FA_T\t$FR_T"
+        }} > "$REPO_ROOT/{output.stats}"
+        cat "$REPO_ROOT/{output.stats}" >> "$LOG"
+        echo "=== filter_braker complete ===" >> "$LOG"
+        """

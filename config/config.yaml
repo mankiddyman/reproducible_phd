@@ -37,6 +37,8 @@ annotation:
   annevo_env: "/netscratch/dep_mercier/grp_marques/Aaryan/micromamba_envs/annevo_v232"
   annevo_repo: "/netscratch/dep_mercier/grp_marques/Aaryan/methods/ANNEVO"
   annevo_model: "saved_model/ANNEVO_Magnoliopsida.pt"
+  omamer_db_luca: "/netscratch/dep_mercier/grp_marques/Aaryan/methods/omark_db/LUCA.h5"
+  omamer_db_viridiplantae: "/netscratch/dep_mercier/grp_marques/Aaryan/methods/omark_db/Viridiplantae.h5"
   braker4_repo: "/netscratch/dep_mercier/grp_marques/Aaryan/methods/BRAKER4"
   braker4_env: "/netscratch/dep_mercier/grp_marques/Aaryan/micromamba_envs/braker4"
   braker4_cache: "/netscratch/dep_mercier/grp_marques/Aaryan/methods/BRAKER4/.singularity_cache"

@@ -108,3 +108,5 @@ versions.yml
 # Cloned upstream tools (reproducibility via envs/haphic.git_commit + INSTALL_HAPHIC.md)
 methods/HapHiC/
 snakemake_tmp/
+busco_downloads/
+busco_v6_lineages.txt
