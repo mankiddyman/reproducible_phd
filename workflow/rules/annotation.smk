@@ -555,3 +555,167 @@ rule extract_proteins:
             -o "{output.faa}" > "{log}" 2>&1
         echo "proteins: $(grep -c '^>' {output.faa})" >> "{log}"
         """
+
+
+# ---- OMArk QC (Tier 1): per (species, tool, db) ----
+OMAMER_DB = {
+    "luca": config["annotation"]["omamer_db_luca"],
+    "viridiplantae": config["annotation"]["omamer_db_viridiplantae"],
+}
+DROSERA_TAXID = 4363
+OMARK_TEST_ENV = "/netscratch/dep_mercier/grp_marques/Aaryan/micromamba_envs/omark_test"
+
+rule qc_omark:
+    """OMArk completeness/consistency for one proteome vs one OMAmer DB.
+    omamer search (multithreaded) -> omark (single-threaded, -t Drosera 4363).
+    db: viridiplantae = sharp plant scoring (bake-off); luca = tree-of-life
+    context for taxon attribution of unknowns (the 2-DB merge)."""
+    input:
+        faa="results/{species}/annotation/{tool}/{species}.{tool}.proteins.fa",
+    output:
+        omamer="results/{species}/annotation/{tool}/omark/{db}/{species}.{tool}.{db}.omamer",
+        summ="results/{species}/annotation/{tool}/omark/{db}/{species}.{tool}.{db}.sum",
+        ump="results/{species}/annotation/{tool}/omark/{db}/{species}.{tool}.{db}.ump",
+        done="results/{species}/annotation/{tool}/omark/{db}/{species}.{tool}.{db}.done",
+    params:
+        db=lambda wc: OMAMER_DB[wc.db],
+        taxid=DROSERA_TAXID,
+        outdir="results/{species}/annotation/{tool}/omark/{db}",
+        prefix="{species}.{tool}.{db}",
+    threads: 16
+    resources:
+        mem_mb=32000,
+        runtime=180,
+    wildcard_constraints:
+        tool="annevo|helixer|tiberius|braker_filtered",
+        db="luca|viridiplantae",
+    conda:
+        "../../envs/omark.yaml"
+    log:
+        "logs/qc_omark/{species}.{tool}.{db}.log",
+    shell:
+        r"""
+        set -euo pipefail
+        mkdir -p "{params.outdir}" "$(dirname {log})"
+        omamer search --db "{params.db}" --query "{input.faa}" \
+            --out "{output.omamer}" --nthreads {threads} > "{log}" 2>&1
+        omark -f "{output.omamer}" -d "{params.db}" -t {params.taxid} \
+            -o "{params.outdir}" >> "{log}" 2>&1
+        # omark names outputs by the omamer basename ({params.prefix}); guard it landed
+        test -s "{output.summ}" || {{ echo "ERR: .sum missing"; ls -la "{params.outdir}" >> "{log}"; exit 1; }}
+        test -s "{output.ump}"  || {{ echo "ERR: .ump missing"; ls -la "{params.outdir}" >> "{log}"; exit 1; }}
+        touch "{output.done}"
+        """
+
+
+rule omark_merge:
+    """Cross-reference Viridiplantae-unknown proteins against the LUCA run to
+    attribute taxon (plant_orphan KEEP / nonplant DROP / unplaceable KEEP).
+    Emits the drop-list consumed by refine_proteome (decontaminated ab-initio set)."""
+    input:
+        viridi_ump="results/{species}/annotation/{tool}/omark/viridiplantae/{species}.{tool}.viridiplantae.ump",
+        luca_omamer="results/{species}/annotation/{tool}/omark/luca/{species}.{tool}.luca.omamer",
+        script="workflow/scripts/omark_merge_unknowns.py",
+    output:
+        detail="results/{species}/annotation/{tool}/omark/{species}.{tool}.attribution.tsv",
+        rollup="results/{species}/annotation/{tool}/omark/{species}.{tool}.rollup.tsv",
+        droplist="results/{species}/annotation/{tool}/omark/{species}.{tool}.drop.txt",
+        orphans="results/{species}/annotation/{tool}/omark/{species}.{tool}.orphans.tsv",
+    params:
+        env=OMARK_TEST_ENV,
+    wildcard_constraints:
+        tool="annevo|helixer|tiberius|braker_filtered",
+    log:
+        "logs/omark_merge/{species}.{tool}.log",
+    shell:
+        r"""
+        set -euo pipefail
+        mkdir -p "$(dirname {log})"
+        micromamba run -p "{params.env}" python3 {input.script} \
+            --viridi-ump "{input.viridi_ump}" \
+            --luca-omamer "{input.luca_omamer}" \
+            --out-detail "{output.detail}" \
+            --out-rollup "{output.rollup}" \
+            --out-droplist "{output.droplist}" \
+            --out-orphans "{output.orphans}" \
+            --species "{wildcards.species}" --tool "{wildcards.tool}" > "{log}" 2>&1
+        """
+
+
+# ---- RNA-support (STAR independent splice junctions) ----
+def _star_reads(species):
+    """(comma-joined R1, comma-joined R2) for STAR, from the species rna_dir.
+    Same fastqs BRAKER used; STAR wants comma-separated (BRAKER used colon)."""
+    import glob, os
+    rna_dir = str(annotation_df.loc[species, "rna_dir"]).strip()
+    r1s = sorted(glob.glob(os.path.join(rna_dir, "*_R1_*.fastq.gz")))
+    if not r1s:
+        raise ValueError(f"no *_R1_*.fastq.gz in {rna_dir} for {species}")
+    r2s = [r.replace("_R1_", "_R2_") for r in r1s]
+    for r2 in r2s:
+        if not os.path.exists(r2):
+            raise ValueError(f"missing R2 mate: {r2}")
+    return ",".join(r1s), ",".join(r2s)
+
+
+rule star_index:
+    """STAR genome index for RNA-support eval. NO annotation (sjdbGTFfile) ->
+    junctions discovered de novo, keeping RNA-support independent of any tool's
+    annotation (avoids circularity)."""
+    input:
+        genome=lambda wc: frozen_chr_fasta(wc.species),
+    output:
+        sa="results/{species}/rna_support/star_index/SAindex",
+    params:
+        idxdir="results/{species}/rna_support/star_index",
+        sa_nbases=14,
+    threads: 16
+    resources:
+        mem_mb=64000,
+        runtime=240,
+    log: "logs/star_index/{species}.log",
+    shell:
+        r"""
+        set -euo pipefail
+        module load star/v2.7.11b 2>/dev/null || true
+        mkdir -p "{params.idxdir}" "$(dirname {log})"
+        STAR --runMode genomeGenerate \
+            --genomeDir "{params.idxdir}" \
+            --genomeFastaFiles "{input.genome}" \
+            --genomeSAindexNbases {params.sa_nbases} \
+            --runThreadN {threads} > "{log}" 2>&1
+        """
+
+
+rule star_align:
+    """2-pass STAR align of all RNA -> SJ.out.tab (independent splice junctions).
+    The RNA-support truth set: each tool's introns scored against these later."""
+    input:
+        sa="results/{species}/rna_support/star_index/SAindex",
+    output:
+        sj="results/{species}/rna_support/star_align/SJ.out.tab",
+        bam="results/{species}/rna_support/star_align/Aligned.sortedByCoord.out.bam",
+    params:
+        idxdir="results/{species}/rna_support/star_index",
+        outprefix="results/{species}/rna_support/star_align/",
+        r1=lambda wc: _star_reads(wc.species)[0],
+        r2=lambda wc: _star_reads(wc.species)[1],
+    threads: 16
+    resources:
+        mem_mb=64000,
+        runtime=480,
+    log: "logs/star_align/{species}.log",
+    shell:
+        r"""
+        set -euo pipefail
+        module load star/v2.7.11b 2>/dev/null || true
+        mkdir -p "{params.outprefix}" "$(dirname {log})"
+        STAR --runMode alignReads \
+            --genomeDir "{params.idxdir}" \
+            --readFilesIn "{params.r1}" "{params.r2}" \
+            --readFilesCommand zcat \
+            --twopassMode Basic \
+            --outSAMtype BAM SortedByCoordinate \
+            --runThreadN {threads} \
+            --outFileNamePrefix "{params.outprefix}" > "{log}" 2>&1
+        """
