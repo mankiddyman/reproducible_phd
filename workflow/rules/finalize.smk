@@ -71,3 +71,41 @@ rule rename_scaffolds:
             > {log} 2>&1
         cat {log}
         """
+
+
+# ---- Freeze decontaminated (no-HiC) assemblies ----
+# For species without HiC scaffolding: promote the decontaminated hifiasm output
+# to assembly_final/{stage}/{species}_chr.fa, the same stable path the HiC path
+# produces via rename_scaffolds. Two modes (frozen_stage in annotation.csv):
+#   dualhap   : concat decontaminated/hap1 + hap2 (hifiasm h1*/h2* names are
+#               already disjoint, so cat is collision-free) -> diploids
+#   collapsed : copy decontaminated/p_utg -> polyploids (primary unitigs)
+def _freeze_decontam_inputs(wc):
+    sp = wc.species
+    if wc.stage == "dualhap":
+        return [f"results/{sp}/assembly/decontaminated/hap1/{sp}.fa",
+                f"results/{sp}/assembly/decontaminated/hap2/{sp}.fa"]
+    elif wc.stage == "collapsed":
+        return [f"results/{sp}/assembly/decontaminated/p_utg/{sp}.fa"]
+    raise ValueError(f"freeze_decontaminated: bad stage {wc.stage}")
+
+rule freeze_decontaminated:
+    """Promote decontaminated (no-HiC) assembly to the stable frozen path.
+    dualhap -> concat hap1+hap2 (collision-free h1*/h2* contig names);
+    collapsed -> copy p_utg. Output is contig-level (no chromosome naming;
+    these species lack HiC), which is fine for annotation."""
+    input:
+        fas=_freeze_decontam_inputs,
+    output:
+        chr_fa="results/{species}/assembly_final/{stage}/{species}_chr.fa",
+    wildcard_constraints:
+        stage=r"dualhap|collapsed",
+    log:
+        "logs/freeze_decontaminated/{species}_{stage}.log",
+    shell:
+        r"""
+        set -euo pipefail
+        mkdir -p "$(dirname {output.chr_fa})" "$(dirname {log})"
+        cat {input.fas} > "{output.chr_fa}"
+        echo "froze {wildcards.species} ({wildcards.stage}): $(grep -c '^>' {output.chr_fa}) contigs from {input.fas}" > "{log}"
+        """

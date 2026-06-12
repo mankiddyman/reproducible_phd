@@ -2,9 +2,9 @@ species_id,has_rna,rna_dir,helixer_lineage,annevo_lineage,tiberius_model,frozen_
 Drosera_paradoxa,yes,/biodata/dep_mercier/grp_marques/marques/Carnivorous-plants/RNA_seq/D_paradoxa,land_plant,Magnoliopsida,angiosperms,pass2
 Drosera_binata,yes,/biodata/dep_mercier/grp_marques/marques/Carnivorous-plants/RNA_seq/D_binata,land_plant,Magnoliopsida,angiosperms,pass1
 Drosera_scorpioides,no,,land_plant,Magnoliopsida,angiosperms,pass2
-Drosera_roseana,no,,land_plant,Magnoliopsida,angiosperms,
-Drosera_aliciae,no,,land_plant,Magnoliopsida,angiosperms,
-Drosera_tokaiensis,no,,land_plant,Magnoliopsida,angiosperms,
-Drosera_filiformis,no,,land_plant,Magnoliopsida,angiosperms,
+Drosera_roseana,no,,land_plant,Magnoliopsida,angiosperms,dualhap
+Drosera_aliciae,no,,land_plant,Magnoliopsida,angiosperms,collapsed
+Drosera_tokaiensis,no,,land_plant,Magnoliopsida,angiosperms,collapsed
+Drosera_filiformis,no,,land_plant,Magnoliopsida,angiosperms,dualhap
 Drosera_capensis,yes,/biodata/dep_mercier/grp_marques/marques/Carnivorous-plants/RNA_seq/D_capensis/fastq,land_plant,Magnoliopsida,angiosperms,external_collapsed
 Drosera_regia,yes,/biodata/dep_mercier/grp_marques/marques/Carnivorous-plants/RNA_seq/D_regia,land_plant,Magnoliopsida,angiosperms,external_collapsed
