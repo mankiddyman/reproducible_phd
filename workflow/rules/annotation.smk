@@ -842,6 +842,8 @@ rule final_annotation:
         faa="results/{species}/annotation/final/{species}.final.proteins.fa",
     params:
         agat_env=AGAT_ENV,
+    resources:
+        mem_mb=16000,
     log:
         "logs/final_annotation/{species}.log",
     shell:
