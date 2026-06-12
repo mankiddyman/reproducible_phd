@@ -829,17 +829,28 @@ rule filter_gff3_by_class:
         """
 
 rule final_annotation:
-    """Authoritative annotation = OMArk-cleaned GFF3 of the track's tool
-    (RNA->braker_filtered, no-RNA->annevo), copied to a stable path so
-    downstream (OrthoFinder, FANTASIA) targets results/<sp>/annotation/final/."""
+    """Authoritative annotation for downstream (OrthoFinder, FANTASIA):
+    OMArk-cleaned GFF3 (track tool: RNA->braker_filtered, no-RNA->annevo) copied
+    to a stable path, plus a peptide FASTA extracted from that cleaned GFF3
+    (kept genes only; one protein per kept transcript)."""
     input:
         gff=lambda wc: "results/{sp}/annotation/{t}/{sp}.{t}.omark_clean.gff3".format(
             sp=wc.species, t=_final_source_tool(wc.species)),
+        genome=lambda wc: frozen_chr_fasta(wc.species),
     output:
         gff="results/{species}/annotation/final/{species}.final.gff3",
+        faa="results/{species}/annotation/final/{species}.final.proteins.fa",
+    params:
+        agat_env=AGAT_ENV,
+    log:
+        "logs/final_annotation/{species}.log",
     shell:
         r"""
         set -euo pipefail
-        mkdir -p "$(dirname {output.gff})"
+        mkdir -p "$(dirname {output.gff})" "$(dirname {log})"
         cp "{input.gff}" "{output.gff}"
+        micromamba run -p "{params.agat_env}" agat_sp_extract_sequences.pl \
+            -g "{output.gff}" -f "{input.genome}" -p \
+            -o "{output.faa}" > "{log}" 2>&1
+        echo "final proteins: $(grep -c '^>' {output.faa})" >> "{log}"
         """
