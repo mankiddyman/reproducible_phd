@@ -24,82 +24,82 @@ default-resources:
   slurm_partition: normal
   mem_mb: 16000
   cpus_per_task: 4
-  slurm_extra: "'--time=04:00:00'"
+  slurm_extra: "'--time=04:00:00 --exclude=hpc15'"
   tmpdir: "/netscratch/dep_mercier/grp_marques/Aaryan/reproducible_phd/snakemake_tmp"
 
 set-resources:
   run_hifiasm:
     cpus_per_task: 32
     slurm_partition: normal
-    slurm_extra: "'--time=2-00:00:00 --exclude=hpc02'"
+    slurm_extra: "'--time=2-00:00:00 --exclude=hpc02,hpc15'"
 
   gfa_to_fasta_initial:
     mem_mb: 32000
     cpus_per_task: 4
-    slurm_extra: "'--time=02:00:00'"
+    slurm_extra: "'--time=02:00:00 --exclude=hpc15'"
 
   standardize_initial_assembly:
     mem_mb: 8000
     cpus_per_task: 2
-    slurm_extra: "'--time=01:00:00'"
+    slurm_extra: "'--time=01:00:00 --exclude=hpc15'"
 
   compile_decisions:
     mem_mb: 8000
     cpus_per_task: 1
     slurm_partition: short
-    slurm_extra: "'--time=00:15:00'"
+    slurm_extra: "'--time=00:15:00 --exclude=hpc15'"
 
   make_blobtoolkit_samplesheet:
     mem_mb: 4000
     cpus_per_task: 1
     slurm_partition: short
-    slurm_extra: "'--time=00:15:00'"
+    slurm_extra: "'--time=00:15:00 --exclude=hpc15'"
 
   make_blobtoolkit_params:
     mem_mb: 4000
     cpus_per_task: 1
     slurm_partition: short
-    slurm_extra: "'--time=00:15:00'"
+    slurm_extra: "'--time=00:15:00 --exclude=hpc15'"
 
   run_blobtoolkit_initial:
     mem_mb: 16000
     cpus_per_task: 4
     slurm_partition: long
-    slurm_extra: "'--time=14-00:00:00'"
+    slurm_extra: "'--time=14-00:00:00 --exclude=hpc15'"
 
   jellyfish_count:
     mem_mb: 32000
     cpus_per_task: 16
-    slurm_extra: "'--time=04:00:00'"
+    slurm_extra: "'--time=04:00:00 --exclude=hpc15'"
 
   jellyfish_histo_genomescope:
     mem_mb: 16000
     cpus_per_task: 4
-    slurm_extra: "'--time=01:00:00'"
+    slurm_extra: "'--time=01:00:00 --exclude=hpc15'"
 
   genomescope2_initial:
     mem_mb: 8000
     cpus_per_task: 2
-    slurm_extra: "'--time=00:30:00'"
+    slurm_extra: "'--time=00:30:00 --exclude=hpc15'"
   annotate_braker:
     mem_mb: 400000
     cpus_per_task: 64
     slurm_partition: long
-    slurm_extra: "'--time=20-00:00:00'"
+    slurm_extra: "'--time=20-00:00:00 --exclude=hpc15'"
   scaffold_haphic_pass1:
     mem_mb: 120000
     cpus_per_task: 40
-    slurm_extra: "'--time=2-00:00:00'"
+    slurm_extra: "'--time=2-00:00:00 --exclude=hpc15'"
   scaffold_haphic_pass2:
     mem_mb: 120000
     cpus_per_task: 40
-    slurm_extra: "'--time=2-00:00:00'"
+    slurm_extra: "'--time=2-00:00:00 --exclude=hpc15'"
   scaffold_haphic_onepass:
     mem_mb: 120000
     cpus_per_task: 40
-    slurm_extra: "'--time=2-00:00:00'"
+    slurm_extra: "'--time=2-00:00:00 --exclude=hpc15'"
   scaffold_ragtag:
     mem_mb: 64000
     cpus_per_task: 40
-    slurm_extra: "'--time=2-00:00:00'"
+    slurm_extra: "'--time=2-00:00:00 --exclude=hpc15'"
 scheduler: greedy
