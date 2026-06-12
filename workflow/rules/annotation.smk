@@ -719,3 +719,127 @@ rule star_align:
             --runThreadN {threads} \
             --outFileNamePrefix "{params.outprefix}" > "{log}" 2>&1
         """
+
+
+# ---- RNA intron-support (bake-off PRIMARY metric) ----
+RNA_SUPPORT_SPECIES = ["Drosera_paradoxa", "Drosera_binata"]
+RNA_SUPPORT_TOOLS = ["annevo", "helixer", "tiberius", "braker_filtered"]
+
+rule rna_intron_support:
+    """Fraction of a tool's predicted introns confirmed by STAR junctions
+    (>=3 uniq reads). Independent RNA-based structural-accuracy metric for the
+    ab-initio bake-off. Precision = of predicted introns, % STAR-confirmed;
+    recall = of STAR junctions, % predicted. braker_filtered is partly circular
+    (used RNA) -> reported as the RNA-informed reference, not an ab-initio peer."""
+    input:
+        gff=lambda wc: annotation_tool_gff3(wc.species, wc.tool),
+        sj="results/{species}/rna_support/star_align/SJ.out.tab",
+        script="workflow/scripts/rna_intron_support.py",
+    output:
+        tsv="results/{species}/rna_support/intron_support/{species}.{tool}.intron_support.tsv",
+    params:
+        min_uniq=3,
+    wildcard_constraints:
+        tool="annevo|helixer|tiberius|braker_filtered",
+    log:
+        "logs/rna_intron_support/{species}.{tool}.log",
+    shell:
+        r"""
+        set -euo pipefail
+        mkdir -p "$(dirname {output.tsv})" "$(dirname {log})"
+        printf 'species\ttool\tn_pred\tn_conf\tprecision\trecall\tmin_uniq\tn_truth\n' > "{output.tsv}"
+        python3 {input.script} --gff "{input.gff}" --sj "{input.sj}" \
+            --species "{wildcards.species}" --tool "{wildcards.tool}" \
+            --min-uniq {params.min_uniq} >> "{output.tsv}" 2> "{log}"
+        """
+
+rule rna_support_aggregate:
+    """Concatenate all per-(species,tool) intron-support rows into one scoreboard."""
+    input:
+        tsvs=expand(
+            "results/{species}/rna_support/intron_support/{species}.{tool}.intron_support.tsv",
+            species=RNA_SUPPORT_SPECIES, tool=RNA_SUPPORT_TOOLS,
+        ),
+    output:
+        scoreboard="results/rna_support_scoreboard.tsv",
+    shell:
+        r"""
+        set -euo pipefail
+        first=1
+        for f in {input.tsvs}; do
+            if [ "$first" = 1 ]; then cat "$f" > "{output.scoreboard}"; first=0;
+            else tail -n +2 "$f" >> "{output.scoreboard}"; fi
+        done
+        """
+
+
+# ---- Final annotation: OMArk-filtered, track-aware ----
+def _is_rna(species):
+    return str(annotation_df.loc[species, "has_rna"]).strip().lower() in ("yes", "true", "1")
+
+def _final_source_tool(species):
+    """RNA species -> braker_filtered; no-RNA -> annevo (chosen ab-initio winner)."""
+    return "braker_filtered" if _is_rna(species) else "annevo"
+
+rule omark_classify_genes:
+    """Per-gene keep/drop table from OMArk consistency + LUCA-merge attribution.
+    Keep: Consistent + plant_orphan + unplaceable (+ unscored if RNA-evidenced).
+    Drop: Inconsistent + Contamination + nonplant (+ unscored if ab-initio)."""
+    input:
+        ump="results/{species}/annotation/{tool}/omark/viridiplantae/{species}.{tool}.viridiplantae.ump",
+        attribution="results/{species}/annotation/{tool}/omark/{species}.{tool}.attribution.tsv",
+        gff=lambda wc: annotation_tool_gff3(wc.species, wc.tool),
+        script="workflow/scripts/omark_classify_genes.py",
+    output:
+        tsv="results/{species}/annotation/{tool}/{species}.{tool}.gene_class.tsv",
+    params:
+        rna_flag=lambda wc: "--rna-evidenced" if wc.tool == "braker_filtered" else "",
+    wildcard_constraints:
+        tool="annevo|braker_filtered",
+    log:
+        "logs/omark_classify_genes/{species}.{tool}.log",
+    shell:
+        r"""
+        set -euo pipefail
+        mkdir -p "$(dirname {log})"
+        python3 {input.script} {params.rna_flag} \
+            --ump "{input.ump}" --attribution "{input.attribution}" \
+            --gff "{input.gff}" --out "{output.tsv}" \
+            --species "{wildcards.species}" --tool "{wildcards.tool}" 2> "{log}"
+        """
+
+rule filter_gff3_by_class:
+    """Apply the keep/drop table -> cleaned, omark_class-tagged GFF3."""
+    input:
+        gff=lambda wc: annotation_tool_gff3(wc.species, wc.tool),
+        classes="results/{species}/annotation/{tool}/{species}.{tool}.gene_class.tsv",
+        script="workflow/scripts/filter_gff3_by_class.py",
+    output:
+        gff="results/{species}/annotation/{tool}/{species}.{tool}.omark_clean.gff3",
+    wildcard_constraints:
+        tool="annevo|braker_filtered",
+    log:
+        "logs/filter_gff3_by_class/{species}.{tool}.log",
+    shell:
+        r"""
+        set -euo pipefail
+        mkdir -p "$(dirname {log})"
+        python3 {input.script} --gff "{input.gff}" \
+            --classes "{input.classes}" --out "{output.gff}" 2> "{log}"
+        """
+
+rule final_annotation:
+    """Authoritative annotation = OMArk-cleaned GFF3 of the track's tool
+    (RNA->braker_filtered, no-RNA->annevo), copied to a stable path so
+    downstream (OrthoFinder, FANTASIA) targets results/<sp>/annotation/final/."""
+    input:
+        gff=lambda wc: "results/{sp}/annotation/{t}/{sp}.{t}.omark_clean.gff3".format(
+            sp=wc.species, t=_final_source_tool(wc.species)),
+    output:
+        gff="results/{species}/annotation/final/{species}.final.gff3",
+    shell:
+        r"""
+        set -euo pipefail
+        mkdir -p "$(dirname {output.gff})"
+        cp "{input.gff}" "{output.gff}"
+        """
