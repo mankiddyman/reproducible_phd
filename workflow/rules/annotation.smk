@@ -582,6 +582,7 @@ rule qc_omark:
         taxid=DROSERA_TAXID,
         outdir="results/{species}/annotation/{tool}/omark/{db}",
         prefix="{species}.{tool}.{db}",
+        env=OMARK_TEST_ENV,
     threads: 16
     resources:
         mem_mb=32000,
@@ -597,9 +598,9 @@ rule qc_omark:
         r"""
         set -euo pipefail
         mkdir -p "{params.outdir}" "$(dirname {log})"
-        omamer search --db "{params.db}" --query "{input.faa}" \
+        micromamba run -p "{params.env}" omamer search --db "{params.db}" --query "{input.faa}" \
             --out "{output.omamer}" --nthreads {threads} > "{log}" 2>&1
-        omark -f "{output.omamer}" -d "{params.db}" -t {params.taxid} \
+        micromamba run -p "{params.env}" omark -f "{output.omamer}" -d "{params.db}" -t {params.taxid} \
             -o "{params.outdir}" >> "{log}" 2>&1
         # omark names outputs by the omamer basename ({params.prefix}); guard it landed
         test -s "{output.summ}" || {{ echo "ERR: .sum missing"; ls -la "{params.outdir}" >> "{log}"; exit 1; }}
