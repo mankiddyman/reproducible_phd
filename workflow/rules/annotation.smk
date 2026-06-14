@@ -857,3 +857,65 @@ rule final_annotation:
             -o "{output.faa}" > "{log}" 2>&1
         echo "final proteins: $(grep -c '^>' {output.faa})" >> "{log}"
         """
+
+
+# ---- FANTASIA-Lite functional annotation (ProtT5 embeddings -> GO transfer) ----
+FANTASIA_ENV  = "/netscratch/dep_mercier/grp_marques/Aaryan/micromamba_envs/fantasia-lite"
+FANTASIA_PIPE = "/netscratch/dep_mercier/grp_marques/Aaryan/methods/FANTASIA-Lite/src/fantasia_pipeline.py"
+
+rule fantasia:
+    """FANTASIA-Lite functional annotation for one species' final proteome.
+    ProtT5 embeddings -> nearest-neighbour GO transfer vs the prebuilt lookup.
+    GPU. Outputs pinned into the pipeline tree; all temp/chunk I/O routed to a
+    netscratch tmpdir (NOT local /scratch, which filled during annevo)."""
+    input:
+        faa="results/{species}/annotation/final/{species}.final.proteins.fa",
+    output:
+        results="results/{species}/annotation/function/fantasia/{species}.results.csv",
+        topgo_p="results/{species}/annotation/function/fantasia/topgo/Prot-T5.topgo.P.txt",
+        topgo_f="results/{species}/annotation/function/fantasia/topgo/Prot-T5.topgo.F.txt",
+        topgo_c="results/{species}/annotation/function/fantasia/topgo/Prot-T5.topgo.C.txt",
+    params:
+        env=FANTASIA_ENV,
+        pipe=FANTASIA_PIPE,
+        outdir="results/{species}/annotation/function/fantasia",
+    resources:
+        gpu=1,
+        mem_mb=64000,
+    threads: 8
+    log:
+        "logs/fantasia/{species}.log",
+    shell:
+        r"""
+        set -euo pipefail
+        REPO_ROOT=$(pwd)
+        LOG="$REPO_ROOT/{log}"
+        OUT="$REPO_ROOT/{params.outdir}"
+        mkdir -p "$OUT/topgo" "$(dirname $LOG)"
+        {PICK_GPU}
+
+        # temp/chunk I/O on netscratch, NOT local /scratch (which filled during annevo)
+        TMPBASE="/netscratch/dep_mercier/grp_marques/Aaryan/tmp/fantasia"
+        mkdir -p "$TMPBASE"
+        SCRATCH=$(mktemp -d "$TMPBASE/{wildcards.species}_XXXXXX")
+        trap "rm -rf $SCRATCH" EXIT
+
+        echo "=== FANTASIA {wildcards.species} (GPU $CUDA_VISIBLE_DEVICES) ===" >> "$LOG"
+        micromamba run -p "{params.env}" python "{params.pipe}" \
+            "$REPO_ROOT/{input.faa}" \
+            --device cuda \
+            --results-csv     "$REPO_ROOT/{output.results}" \
+            --topgo-dir       "$OUT/topgo" \
+            --embeddings-npz  "$OUT/{wildcards.species}.query_embeddings.npz" \
+            --config-yaml     "$OUT/{wildcards.species}.fantasia_config.yaml" \
+            --failure-report  "$OUT/{wildcards.species}.failed_sequences.csv" \
+            --chunk-dir          "$SCRATCH/fasta_chunks" \
+            --chunk-embed-dir    "$SCRATCH/chunk_embeddings" \
+            --chunk-results-dir  "$SCRATCH/chunk_results" \
+            --chunk-config-dir   "$SCRATCH/chunk_configs" \
+            --chunk-failure-dir  "$SCRATCH/chunk_failures" \
+            >> "$LOG" 2>&1
+
+        echo "=== fantasia done: {output.results} ===" >> "$LOG"
+        wc -l "$REPO_ROOT/{output.results}" >> "$LOG" 2>&1 || true
+        """
