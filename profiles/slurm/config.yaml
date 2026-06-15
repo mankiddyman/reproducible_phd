@@ -28,6 +28,10 @@ default-resources:
   tmpdir: "/netscratch/dep_mercier/grp_marques/Aaryan/reproducible_phd/snakemake_tmp"
 
 set-resources:
+  orthofinder:
+    cpus_per_task: 48
+    mem_mb: 400000
+    slurm_extra: "'--time=2-00:00:00 --exclude=hpc15'"
   run_hifiasm:
     cpus_per_task: 32
     slurm_partition: normal

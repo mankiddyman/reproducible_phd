@@ -18,6 +18,7 @@
 !*.py
 !*.R
 !*.pl
+!*.awk
 
 # Config / metadata / env definitions
 !*.yaml
@@ -110,3 +111,9 @@ methods/HapHiC/
 snakemake_tmp/
 busco_downloads/
 busco_v6_lineages.txt
+
+# macOS AppleDouble metadata (created on mounted shares)
+._*
+.DS_Store
+# scratch / test dirs
+_omark_test/

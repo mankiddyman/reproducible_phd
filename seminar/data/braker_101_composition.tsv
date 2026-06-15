@@ -1,0 +1,9 @@
+species	stage	exon_class	n	sp_short
+Drosera_binata	Raw BRAKER	Multi-exon	29889	D. binata
+Drosera_binata	Raw BRAKER	Single-exon	6983	D. binata
+Drosera_binata	braker_filtered	Multi-exon	29754	D. binata
+Drosera_binata	braker_filtered	Single-exon	6513	D. binata
+Drosera_paradoxa	Raw BRAKER	Multi-exon	39360	D. paradoxa
+Drosera_paradoxa	Raw BRAKER	Single-exon	65800	D. paradoxa
+Drosera_paradoxa	braker_filtered	Multi-exon	39122	D. paradoxa
+Drosera_paradoxa	braker_filtered	Single-exon	21881	D. paradoxa

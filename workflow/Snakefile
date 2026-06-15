@@ -9,6 +9,7 @@ include: "rules/decontamination.smk"
 include: "rules/scaffolding.smk"
 include: "rules/finalize.smk"
 include: "rules/annotation.smk"
+include: "rules/comparative.smk"
 
 
 rule all:

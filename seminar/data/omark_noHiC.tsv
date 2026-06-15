@@ -1,0 +1,9 @@
+species	tool	assembly	Consistent	Inconsistent	Contamination	Unknown	completeness	consistency	sp_short
+Drosera_binata	braker_filtered	Chromosome level + (RNA)	95.76	0.38	0	3.86	89.89	95.76	D. binata
+Drosera_paradoxa	braker_filtered	Chromosome level + (RNA)	85.34	0.6	0	14.06	91.02	85.34	D. paradoxa
+Drosera_capensis	braker_filtered	Chromosome level + (RNA)	92.92	0.44	0	6.64	90.95	92.92	D. capensis
+Drosera_regia	braker_filtered	Chromosome level + (RNA)	95.33	0.42	0	4.25	92.61	95.33	D. regia
+Drosera_aliciae	annevo	Contig level polyploid	87.3	0.81	0	11.89	92.67	87.3	D. aliciae
+Drosera_tokaiensis	annevo	Contig level polyploid	88.24	0.63	0	11.13	92.69	88.24	D. tokaiensis
+Drosera_roseana	annevo	Contig level diploid	73.98	0.99	0	25.03	92.77	73.98	D. roseana
+Drosera_filiformis	annevo	Contig level diploid	72.34	2.09	0	25.58	90.28	72.34	D. filiformis
