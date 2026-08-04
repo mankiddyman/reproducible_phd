@@ -14,6 +14,45 @@
 # DECONTAMINATED hap1/hap2 are the actual query.
 
 
+# =============================================================================
+# !!! KNOWN HapHiC FAILURE MODES — READ THIS IF juicebox/juicer STEPS BREAK !!!
+# Both hit Drosera_scorpioides pass2_hf, 2026-06-25. Neither is fixed here yet;
+# fixes are applied by hand in 04.build/. Diagnose with:
+#     ls -la <04.build>/out_JBAT.hic.part      # exists + tiny  => bug 1
+#     ls -la <04.build>/scaffolds.raw.agp      # missing        => bug 2
+#
+# BUG 1 — java heap flag ignored; out_JBAT.hic never written
+#   HapHiC generates juicebox.sh containing:
+#       java -Djava.awt.headless=true -jar -Xmx32G ... juicer_tools.jar pre ...
+#   -Xmx AFTER -jar is passed to the PROGRAM, not the JVM. juicer_tools then
+#   dies on default heap, leaving a ~270 KB out_JBAT.hic.part and no .hic.
+#   The `&& mv .part .hic` never fires, so the rule fails with no obvious cause.
+#   FIX (run in 04.build/):
+#       sed -i -E 's/-jar[[:space:]]+-Xmx[0-9]+[GgMm]/-Xmx200G -jar/' juicebox.sh
+# HapHiC bug 1: this script has -Xmx AFTER -jar -> no .hic, only .hic.part.
+# HapHiC bug 2: juicer pre may need scaffolds.raw.agp (cp from scaffolds.agp).
+# See the banner at the top of this file for the exact fixes.
+#       bash juicebox.sh
+#   or run java by hand: -Xmx200G BEFORE -jar, then mv out_JBAT.hic.part out_JBAT.hic
+#   (~30 min on a 3 GB out_JBAT.txt; hpc09 has ~1 TB RAM, 32G is far too small.)
+#
+# BUG 2 — juicer pre: "cannot open file scaffolds.raw.agp for reading"
+#   `juicer pre` reads scaffolds.raw.agp, but only scaffolds.agp was present in
+#   pass2_hf/step3_haphic/04.build. In pass1 the two files were byte-IDENTICAL.
+#   UNRESOLVED whether HapHiC failed to write it or it was removed in a storage
+#   cleanup (scaffolds.fa, 8.3 GB, was also missing from the same directory).
+#   FIX (run in 04.build/):
+#       cp scaffolds.agp scaffolds.raw.agp
+#       <HapHiC>/utils/juicer pre -a -q 1 -o out_JBAT <HiC.filtered.bam> \
+#           scaffolds.raw.agp <ref>.fa.fai > out_JBAT.log 2>&1
+#   `-a` writes out_JBAT.assembly + out_JBAT.liftover.agp — BOTH are needed
+#   (Juicebox needs .assembly; the post_juicebox rule needs .liftover.agp).
+#   Takes ~4 min. It REWRITES out_JBAT.txt, so rebuild the .hic afterwards, or
+#   verify PRE_C_SIZE / "genome size" / "read pairs processed" still match the
+#   values in the log the existing .hic was built from.
+# =============================================================================
+
+
 HAPHIC_BIN = "methods/HapHiC/haphic"
 HAPHIC_FILTER_BAM = "methods/HapHiC/utils/filter_bam.py"
 HAPHIC_JUICER_POST = "methods/HapHiC/utils/juicer"
@@ -51,6 +90,9 @@ rule scaffold_haphic_pass1:
 
     User workflow after this rule completes:
       1. cd results/{species}/scaffolding/pass1/04.build/
+      # HapHiC bug 1: this script has -Xmx AFTER -jar -> no .hic, only .hic.part.
+      # HapHiC bug 2: juicer pre may need scaffolds.raw.agp (cp from scaffolds.agp).
+      # See the banner at the top of this file for the exact fixes.
       2. bash juicebox.sh  (already invoked by this rule, produces .hic + .assembly)
       3. Open out_JBAT.hic + out_JBAT.assembly in Juicebox GUI
       4. Edit, save as out_JBAT.review.assembly in the same dir
@@ -176,6 +218,9 @@ rule scaffold_haphic_pass1:
         source /opt/share/software/scs/appStore/modules/init/profile.sh
         module load java/jdk-17.0.10
         export PATH=/usr/bin:$PATH #in case module load doesnt point to anything
+        # HapHiC bug 1: this script has -Xmx AFTER -jar -> no .hic, only .hic.part.
+        # HapHiC bug 2: juicer pre may need scaffolds.raw.agp (cp from scaffolds.agp).
+        # See the banner at the top of this file for the exact fixes.
         bash juicebox.sh 2>> "$LOG"
 
         echo "=== pass 1 algorithmic step complete ===" >> "$LOG"
@@ -412,6 +457,9 @@ rule scaffold_haphic_pass2:
         cd "$OUTDIR/04.build/"
         rm -f "{wildcards.species}.ragtag.fa"  # symlinked by juicebox.sh
         export PATH=/usr/bin:$PATH  # system java 17 for juicer_tools
+        # HapHiC bug 1: this script has -Xmx AFTER -jar -> no .hic, only .hic.part.
+        # HapHiC bug 2: juicer pre may need scaffolds.raw.agp (cp from scaffolds.agp).
+        # See the banner at the top of this file for the exact fixes.
         bash juicebox.sh 2>> "$LOG"
 
         echo "=== pass 2 algorithmic step complete ===" >> "$LOG"
@@ -603,6 +651,9 @@ rule scaffold_haphic_onepass:
         cd "$OUTDIR/04.build/"
         rm -f "{wildcards.species}.allhaps.fa"  # symlinked by juicebox.sh
         export PATH=/usr/bin:$PATH  # system java 17 for juicer_tools
+        # HapHiC bug 1: this script has -Xmx AFTER -jar -> no .hic, only .hic.part.
+        # HapHiC bug 2: juicer pre may need scaffolds.raw.agp (cp from scaffolds.agp).
+        # See the banner at the top of this file for the exact fixes.
         bash juicebox.sh 2>> "$LOG"
 
         echo "=== onepass algorithmic step complete ===" >> "$LOG"
@@ -928,6 +979,9 @@ rule scaffold_haphic_ragtag_hf:
         source /opt/share/software/scs/appStore/modules/init/profile.sh
         module load java/jdk-17.0.10
         export PATH=/usr/bin:$PATH
+        # HapHiC bug 1: this script has -Xmx AFTER -jar -> no .hic, only .hic.part.
+        # HapHiC bug 2: juicer pre may need scaffolds.raw.agp (cp from scaffolds.agp).
+        # See the banner at the top of this file for the exact fixes.
         bash juicebox.sh 2>> "$LOG"
         echo "=== step3 complete; curate out_JBAT.hic in Juicebox ===" >> "$LOG"
         """
