@@ -35,6 +35,16 @@ def pass1_putg_dir(species: str) -> str:
     return f"results/{species}/assembly/{stage}/p_utg"
 
 
+def haphic_pass1_extra(species: str) -> str:
+    """Extra HapHiC pipeline flags for pass 1, per species (default empty).
+    Populate config['haphic_pass1_extra'][species] when the default auto
+    clustering can't resolve chromosomes, e.g. autotetraploid scorpioides:
+    '--correct_nrounds 5 --region_len_ratio 0.5 --remove_allelic_links 4 --max_inflation 10'
+    The --remove_allelic_links flag strips Hi-C links between the allelic/
+    homeologous copies, which otherwise fuse chromosomes in MCL clustering."""
+    return config.get("haphic_pass1_extra", {}).get(species, "")
+
+
 rule scaffold_haphic_pass1:
     """HapHiC pass 1: scaffold the initial p_utg into chromosome-scale scaffolds.
     Output is ready for manual Juicebox curation.
@@ -66,6 +76,7 @@ rule scaffold_haphic_pass1:
         gfa_local=lambda wc: f"results/{wc.species}/scaffolding/pass1/work/{wc.species}.p_utg.gfa",
         haphic_bin=HAPHIC_BIN,
         haphic_filter_bam=HAPHIC_FILTER_BAM,
+        extra=lambda wc: haphic_pass1_extra(wc.species),
     threads: 40
     resources:
         mem_mb=120000,
@@ -149,11 +160,12 @@ rule scaffold_haphic_pass1:
 
 
 
-        echo "=== haphic pipeline ===" >> "$LOG"
+        echo "=== haphic pipeline (pass1, extra: {params.extra}) ===" >> "$LOG"
         "$REPO_ROOT/{params.haphic_bin}" pipeline \
             "$REF" HiC.filtered.bam {params.chr_num} \
             --threads {threads} --processes {threads} \
             --gfa "$GFA" \
+            {params.extra} \
             2>> "$LOG"
 
         # 7. juicebox.sh
@@ -640,4 +652,323 @@ rule scaffold_haphic_onepass_post_juicebox:
             2>> "$LOG"
         echo "=== onepass post-juicebox complete ===" >> "$LOG"
         echo "FINAL.fa is at: {output.final_fa}" >> "$LOG"
+        """
+
+
+# ════════════════════════════════════════════════════════════════════════
+# TWOPASS_HAPHIC_FIRST (scorpioides): HapHiC(decon hap1+hap2, gfa-phased)
+#   → RagTag (query) vs pass-1 curated p_utg FINAL.fa (ref)
+#   → HapHiC again on the RagTag output → manual Juicebox curation → freeze.
+#
+# Distinct from paradoxa's twopass_ragtag (ragtag-first). scorpioides was run
+# hifiasm --n-hap 4 then RE-RUN --n-hap 2; hap3/hap4 are STALE and IGNORED.
+# We pin hap1+hap2 explicitly (NOT decon_hap_fastas/gfas, which return hap1..hap4
+# because hap_count_for_species reads exp_ploidy=4). chr_num = 16 (chr_number_2n).
+# scorp HapHiC tuning (config['haphic_pass2_extra']) applies to BOTH HapHiC steps.
+# NOTE: --remove_allelic_links on the gfa-PHASED step-1 may over-strip; if step-1
+# looks wrong in the contact map, drop the extra params from step 1 first.
+# ════════════════════════════════════════════════════════════════════════
+
+HAPHIC_FIRST_HAPS = ["hap1", "hap2"]  # n-hap2 rerun; hap3/hap4 stale/ignored
+
+def hf_decon_hap_fastas(wildcards):
+    return [f"results/{wildcards.species}/assembly/decontaminated/{h}/{wildcards.species}.fa"
+            for h in HAPHIC_FIRST_HAPS]
+
+def hf_decon_hap_gfas(wildcards):
+    return [f"results/{wildcards.species}/assembly/decontaminated/{h}/{wildcards.species}.gfa"
+            for h in HAPHIC_FIRST_HAPS]
+
+
+rule scaffold_haphic_haps_hf:
+    """STEP 1: HapHiC-scaffold cat(decon hap1,hap2) with per-hap decon GFAs
+    (--gfa, phasing-aware). Output scaffolds.fa is the RagTag QUERY (step 2),
+    NOT curated here, so no juicebox.sh."""
+    input:
+        haps=hf_decon_hap_fastas,
+        gfas=hf_decon_hap_gfas,
+        hic_r1=hic_r1_for_species,
+        hic_r2=hic_r2_for_species,
+    output:
+        scaffolds_fa="results/{species}/scaffolding/pass2_hf/step1_haps/04.build/scaffolds.fa",
+        raw_agp="results/{species}/scaffolding/pass2_hf/step1_haps/04.build/scaffolds.raw.agp",
+        done=touch("results/{species}/scaffolding/pass2_hf/step1_haps/step1.done"),
+    params:
+        chr_num=lambda wc: chr_num_for_species(wc.species),
+        extra=lambda wc: haphic_pass2_extra(wc.species),
+        workdir="results/{species}/scaffolding/pass2_hf/step1_haps/work",
+        outdir="results/{species}/scaffolding/pass2_hf/step1_haps",
+        haphic_bin=HAPHIC_BIN,
+        haphic_filter_bam=HAPHIC_FILTER_BAM,
+    threads: 40
+    resources:
+        mem_mb=120000,
+    conda:
+        HAPHIC_ENV
+    log:
+        "logs/scaffold_haphic_haps_hf/{species}.log"
+    benchmark:
+        "benchmarks/scaffold_haphic_haps_hf/{species}.tsv"
+    shell:
+        r"""
+        set -euo pipefail
+        REPO_ROOT=$(pwd)
+        LOG="$REPO_ROOT/{log}"
+        WORKDIR="$REPO_ROOT/{params.workdir}"
+        OUTDIR="$REPO_ROOT/{params.outdir}"
+        mkdir -p "$WORKDIR" "$OUTDIR" "$(dirname $LOG)"
+
+        cat {input.haps} > "$WORKDIR/{wildcards.species}.allhaps.fa"
+
+        GFA_ARG=""
+        for g in {input.gfas}; do
+            abs="$REPO_ROOT/$g"
+            if [ -z "$GFA_ARG" ]; then GFA_ARG="$abs"; else GFA_ARG="$GFA_ARG,$abs"; fi
+        done
+        echo "=== gfa arg: $GFA_ARG ===" >> "$LOG"
+
+        cd "$WORKDIR"
+        REF="{wildcards.species}.allhaps.fa"
+        echo "=== bwa index ===" >> "$LOG"
+        bwa index "$REF" 2>> "$LOG"
+
+        R1_FILES=({input.hic_r1})
+        R2_FILES=({input.hic_r2})
+        if [ "${{#R1_FILES[@]}}" -ne "${{#R2_FILES[@]}}" ]; then
+            echo "ERROR: R1/R2 count mismatch" >&2; exit 1
+        fi
+        BAM_FILES=()
+        for i in "${{!R1_FILES[@]}}"; do
+            R1="${{R1_FILES[$i]}}"; R2="${{R2_FILES[$i]}}"
+            BAM="HIC_${{i}}.bam"; BAM_FILES+=("$BAM")
+            echo "=== bwa mem pair $((i+1))/${{#R1_FILES[@]}} ===" >> "$LOG"
+            bwa mem -t {threads} -5SP "$REF" "$R1" "$R2" 2>> "$LOG" \
+                | samblaster 2>> "$LOG" \
+                | samtools view -@ {threads} -S -h -b -F 3340 -o "$BAM" 2>> "$LOG"
+        done
+        echo "=== samtools merge ===" >> "$LOG"
+        samtools merge -@ {threads} -f HIC.bam "${{BAM_FILES[@]}}" 2>> "$LOG"
+        echo "=== samtools sort -n ===" >> "$LOG"
+        samtools sort -n -@ {threads} -o HiC.sorted.bam HIC.bam 2>> "$LOG"
+        echo "=== HapHiC filter_bam ===" >> "$LOG"
+        "$REPO_ROOT/{params.haphic_filter_bam}" HiC.sorted.bam 2 --NM 3 --threads {threads} 2>> "$LOG" \
+            | samtools view -b -@ {threads} -o HiC.filtered.bam 2>> "$LOG"
+
+        cd "$OUTDIR"
+        ln -srf "$WORKDIR/HiC.filtered.bam" ./HiC.filtered.bam
+        ln -srf "$WORKDIR/$REF" ./"$REF"
+        rm -rf 01.cluster 02.reassign 03.sort 04.build
+
+        echo "=== haphic pipeline (step1 haps, gfa-phased, extra: {params.extra}) ===" >> "$LOG"
+        "$REPO_ROOT/{params.haphic_bin}" pipeline \
+            "$REF" HiC.filtered.bam {params.chr_num} \
+            --threads {threads} --processes {threads} \
+            --gfa "$GFA_ARG" \
+            {params.extra} \
+            2>> "$LOG"
+        echo "=== step1 complete (scaffolds.fa ready as ragtag query) ===" >> "$LOG"
+        """
+
+
+rule scaffold_ragtag_hf:
+    """STEP 2 (pragmatic): RagTag — order/orient the decontaminated hap1+hap2
+    CONTIGS directly (query) against the curated pass-1 p_utg backbone
+    (ref = pass1 FINAL.fa). Skips a HapHiC-first step (that over-merged into a
+    >2 Gb group on the gfa-phased haps). RagTag places contigs by reference
+    alignment; step-3 HapHiC + Juicebox does chromosome-level refinement."""
+    input:
+        ref="results/{species}/scaffolding/pass1/05.post_juicebox/out_JBAT.FINAL.fa",
+        query_haps=hf_decon_hap_fastas,
+    output:
+        scaffold_fa="results/{species}/scaffolding/pass2_hf/step2_ragtag/ragtag.scaffold.fasta",
+    params:
+        workdir="results/{species}/scaffolding/pass2_hf/step2_ragtag",
+    threads: 40
+    resources:
+        mem_mb=120000,
+    conda:
+        RAGTAG_ENV
+    log:
+        "logs/scaffold_ragtag_hf/{species}.log"
+    benchmark:
+        "benchmarks/scaffold_ragtag_hf/{species}.tsv"
+    shell:
+        r"""
+        set -euo pipefail
+        REPO_ROOT=$(pwd)
+        LOG="$REPO_ROOT/{log}"
+        WORKDIR="$REPO_ROOT/{params.workdir}"
+        mkdir -p "$WORKDIR" "$(dirname $LOG)"
+
+        # Spill temp to netscratch (WORKDIR), not node-local /tmp which can be
+        # tiny and silently fill -> exit 1. minimap2/ragtag honor TMPDIR.
+        export TMPDIR="$WORKDIR/tmp"
+        mkdir -p "$TMPDIR"
+
+        # Concatenate decontaminated hap1+hap2 contigs as the ragtag query.
+        # hifiasm names contigs per-hap (h1tg/h2tg), so no header collisions.
+        cat {input.query_haps} > "$WORKDIR/all_haps.fa"
+
+        cd "$WORKDIR"
+        # Clear any prior ragtag_output: a failed run leaves a 0-byte .asm.paf
+        # that ragtag REUSES on retry -> "no useful alignments". Always start clean.
+        rm -rf ragtag_output
+
+        # Filter reference to the top 16 scaffolds by length (= the 16 chromosomes;
+        # clean size break: chr1-16 are 329-510 Mb, scaffold_17 drops to 95 Mb).
+        # Full pass1 FINAL has ~30,774 seqs / 8.2 Gb incl. tiny unplaced contigs that
+        # break minimap2 indexing ([morecore] OOM). ragtag only needs the chromosome
+        # backbone as reference; keep only the 16 largest.
+        REF_FULL="$REPO_ROOT/{input.ref}"
+        samtools faidx "$REF_FULL"
+        # NB: `sort | head` triggers SIGPIPE (exit 141) under `set -o pipefail`;
+        # use awk (reads whole stream) to take the 16 longest scaffold names.
+        sort -k2,2 -nr "$REF_FULL.fai" | awk 'NR<=16{{print $1}}' > top16.names
+        echo "=== top-16 reference scaffolds kept: ===" >> "$LOG"
+        cat top16.names >> "$LOG"
+        # seqkit grep extracts all 16 by name robustly (samtools faidx with a
+        # 16-region cmdline expansion was truncating to the first scaffold).
+        seqkit grep -f top16.names "$REF_FULL" > ref_chrom.fa
+        echo "=== ref_chrom.fa seqs: $(grep -c '^>' ref_chrom.fa) (expect 16) ===" >> "$LOG"
+
+        ragtag.py scaffold \
+            ref_chrom.fa \
+            all_haps.fa \
+            -t {threads} \
+            -o ragtag_output \
+            2>> "$LOG"
+        cp ragtag_output/ragtag.scaffold.fasta ./ragtag.scaffold.fasta
+        echo "=== ragtag (hf, decon haps as query) complete ===" >> "$LOG"
+        """
+
+
+rule scaffold_haphic_ragtag_hf:
+    """STEP 3: HapHiC-scaffold the RagTag output → JBAT (.hic/.assembly) for
+    manual Juicebox curation. scorp tuning params applied; no --gfa (ragtag
+    output is a flat FASTA). Same align/filter/juicebox boilerplate as pass2."""
+    input:
+        ref="results/{species}/scaffolding/pass2_hf/step2_ragtag/ragtag.scaffold.fasta",
+        hic_r1=hic_r1_for_species,
+        hic_r2=hic_r2_for_species,
+    output:
+        scaffolds_fa="results/{species}/scaffolding/pass2_hf/step3_haphic/04.build/scaffolds.fa",
+        raw_agp="results/{species}/scaffolding/pass2_hf/step3_haphic/04.build/scaffolds.raw.agp",
+        liftover_agp="results/{species}/scaffolding/pass2_hf/step3_haphic/04.build/out_JBAT.liftover.agp",
+        jbat_hic="results/{species}/scaffolding/pass2_hf/step3_haphic/04.build/out_JBAT.hic",
+        jbat_assembly="results/{species}/scaffolding/pass2_hf/step3_haphic/04.build/out_JBAT.assembly",
+        done=touch("results/{species}/scaffolding/pass2_hf/step3_haphic/step3.done"),
+    params:
+        chr_num=lambda wc: chr_num_for_species(wc.species),
+        extra=lambda wc: haphic_pass2_extra(wc.species),
+        workdir="results/{species}/scaffolding/pass2_hf/step3_haphic/work",
+        outdir="results/{species}/scaffolding/pass2_hf/step3_haphic",
+        haphic_bin=HAPHIC_BIN,
+        haphic_filter_bam=HAPHIC_FILTER_BAM,
+    threads: 40
+    resources:
+        mem_mb=120000,
+    conda:
+        HAPHIC_ENV
+    log:
+        "logs/scaffold_haphic_ragtag_hf/{species}.log"
+    benchmark:
+        "benchmarks/scaffold_haphic_ragtag_hf/{species}.tsv"
+    shell:
+        r"""
+        set -euo pipefail
+        REPO_ROOT=$(pwd)
+        LOG="$REPO_ROOT/{log}"
+        WORKDIR="$REPO_ROOT/{params.workdir}"
+        OUTDIR="$REPO_ROOT/{params.outdir}"
+        mkdir -p "$WORKDIR" "$OUTDIR" "$(dirname $LOG)"
+
+        cp -L "$REPO_ROOT/{input.ref}" "$WORKDIR/{wildcards.species}.ragtag.fa"
+        cd "$WORKDIR"
+        REF="{wildcards.species}.ragtag.fa"
+        echo "=== bwa index ===" >> "$LOG"
+        bwa index "$REF" 2>> "$LOG"
+
+        R1_FILES=({input.hic_r1})
+        R2_FILES=({input.hic_r2})
+        if [ "${{#R1_FILES[@]}}" -ne "${{#R2_FILES[@]}}" ]; then
+            echo "ERROR: R1/R2 count mismatch" >&2; exit 1
+        fi
+        BAM_FILES=()
+        for i in "${{!R1_FILES[@]}}"; do
+            R1="${{R1_FILES[$i]}}"; R2="${{R2_FILES[$i]}}"
+            BAM="HIC_${{i}}.bam"; BAM_FILES+=("$BAM")
+            echo "=== bwa mem pair $((i+1))/${{#R1_FILES[@]}} ===" >> "$LOG"
+            bwa mem -t {threads} -5SP "$REF" "$R1" "$R2" 2>> "$LOG" \
+                | samblaster 2>> "$LOG" \
+                | samtools view -@ {threads} -S -h -b -F 3340 -o "$BAM" 2>> "$LOG"
+        done
+        echo "=== samtools merge ===" >> "$LOG"
+        samtools merge -@ {threads} -f HIC.bam "${{BAM_FILES[@]}}" 2>> "$LOG"
+        echo "=== samtools sort -n ===" >> "$LOG"
+        samtools sort -n -@ {threads} -o HiC.sorted.bam HIC.bam 2>> "$LOG"
+        echo "=== HapHiC filter_bam ===" >> "$LOG"
+        "$REPO_ROOT/{params.haphic_filter_bam}" HiC.sorted.bam 2 --NM 3 --threads {threads} 2>> "$LOG" \
+            | samtools view -b -@ {threads} -o HiC.filtered.bam 2>> "$LOG"
+
+        cd "$OUTDIR"
+        ln -srf "$WORKDIR/HiC.filtered.bam" ./HiC.filtered.bam
+        ln -srf "$WORKDIR/$REF" ./"$REF"
+        rm -rf 01.cluster 02.reassign 03.sort 04.build
+
+        echo "=== haphic pipeline (step3 ragtag, extra: {params.extra}) ===" >> "$LOG"
+        "$REPO_ROOT/{params.haphic_bin}" pipeline \
+            "$REF" HiC.filtered.bam {params.chr_num} \
+            --threads {threads} --processes {threads} \
+            {params.extra} \
+            2>> "$LOG"
+
+        echo "=== juicebox.sh ===" >> "$LOG"
+        cd "$OUTDIR/04.build/"
+        rm -f "{wildcards.species}.ragtag.fa"
+        source /opt/share/software/scs/appStore/modules/init/profile.sh
+        module load java/jdk-17.0.10
+        export PATH=/usr/bin:$PATH
+        bash juicebox.sh 2>> "$LOG"
+        echo "=== step3 complete; curate out_JBAT.hic in Juicebox ===" >> "$LOG"
+        """
+
+
+rule scaffold_haphic_pass2_hf_post_juicebox:
+    """STEP 4: apply manual Juicebox curation of step 3 → final frozen scaffolds.
+    Requires user-created out_JBAT.review.assembly (snakemake fails clean if absent)."""
+    input:
+        review_assembly="results/{species}/scaffolding/pass2_hf/step3_haphic/04.build/out_JBAT.review.assembly",
+        liftover_agp="results/{species}/scaffolding/pass2_hf/step3_haphic/04.build/out_JBAT.liftover.agp",
+        ref_fa="results/{species}/scaffolding/pass2_hf/step3_haphic/work/{species}.ragtag.fa",
+    output:
+        final_fa="results/{species}/scaffolding/pass2_hf/step4_post_juicebox/out_JBAT.FINAL.fa",
+    params:
+        outdir="results/{species}/scaffolding/pass2_hf/step4_post_juicebox",
+        haphic_juicer=HAPHIC_JUICER_POST,
+    threads: 2
+    resources:
+        mem_mb=8000,
+    conda:
+        HAPHIC_ENV
+    log:
+        "logs/scaffold_haphic_pass2_hf_post_juicebox/{species}.log"
+    shell:
+        r"""
+        set -euo pipefail
+        REPO_ROOT=$(pwd)
+        LOG="$REPO_ROOT/{log}"
+        OUTDIR="$REPO_ROOT/{params.outdir}"
+        mkdir -p "$OUTDIR" "$(dirname $LOG)"
+        AUTO_ASSEMBLY="results/{wildcards.species}/scaffolding/pass2_hf/step3_haphic/04.build/out_JBAT.assembly"
+        if [ -f "$AUTO_ASSEMBLY" ] && cmp -s "$AUTO_ASSEMBLY" "{input.review_assembly}"; then
+            echo "WARNING: review.assembly byte-identical to out_JBAT.assembly" >> "$LOG"
+        fi
+        cd "$OUTDIR"
+        "$REPO_ROOT/{params.haphic_juicer}" post \
+            -o out_JBAT \
+            "$REPO_ROOT/{input.review_assembly}" \
+            "$REPO_ROOT/{input.liftover_agp}" \
+            "$REPO_ROOT/{input.ref_fa}" \
+            2>> "$LOG"
+        echo "=== step4 post-juicebox complete; FINAL.fa frozen ===" >> "$LOG"
         """

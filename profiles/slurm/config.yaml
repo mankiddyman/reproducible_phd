@@ -106,4 +106,21 @@ set-resources:
     mem_mb: 64000
     cpus_per_task: 40
     slurm_extra: "'--time=2-00:00:00 --exclude=hpc15'"
+  scaffold_haphic_haps_hf:
+    mem_mb: 120000
+    cpus_per_task: 40
+    slurm_extra: "'--time=2-00:00:00 --exclude=hpc15'"
+  scaffold_ragtag_hf:
+    mem_mb: 120000
+    cpus_per_task: 40
+    disk_mb: 200000
+    slurm_extra: "'--time=2-00:00:00 --exclude=hpc15'"
+  scaffold_haphic_ragtag_hf:
+    mem_mb: 120000
+    cpus_per_task: 40
+    slurm_extra: "'--time=2-00:00:00 --exclude=hpc15'"
+  scaffold_haphic_pass2_hf_post_juicebox:
+    mem_mb: 8000
+    cpus_per_task: 4
+    slurm_extra: "'--time=02:00:00 --exclude=hpc15'"
 scheduler: greedy

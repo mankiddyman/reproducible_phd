@@ -25,6 +25,12 @@ blobtoolkit:
 # version-controlled. Empty/absent = no extra flags.
 haphic_pass2_extra:
   Drosera_binata: ""
+  Drosera_scorpioides: "--correct_nrounds 5 --region_len_ratio 0.5 --remove_allelic_links 4 --max_inflation 10"
+
+# HapHiC pass-1 per-species tuning. scorpioides (autotetraploid) needs
+# allelic-link removal + assembly correction or MCL fuses chromosomes.
+haphic_pass1_extra:
+  Drosera_scorpioides: "--correct_nrounds 5 --region_len_ratio 0.5 --remove_allelic_links 4 --max_inflation 10"
 
 # ---- Annotation ----
 annotation_table: "config/annotation.csv"
