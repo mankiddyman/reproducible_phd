@@ -2,10 +2,11 @@
 
 import os as _os
 
-# Species with a final annotation (scorpioides excluded — no assembly_final).
-ORTHO_SPECIES = [sp for sp in annotation_df.index
-                 if _os.path.exists(
-                     f"results/{sp}/annotation/final/{sp}.final.proteins.fa")]
+# All species in annotation.csv. NOT a disk check: ORTHO_SPECIES is evaluated at
+# DAG-construction time, so globbing for existing final.proteins.fa silently
+# excluded any species whose annotation is produced later in the SAME run
+# (scorpioides, 2026-08). Snakemake resolves the dependency itself.
+ORTHO_SPECIES = list(annotation_df.index)
 
 rule orthofinder_prep:
     """Longest-isoform-per-gene proteomes for all final-annotated species into

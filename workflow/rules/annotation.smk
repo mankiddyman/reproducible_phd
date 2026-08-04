@@ -256,6 +256,11 @@ rule annotate_braker:
         proteins=ORTHODB_VIRID,
     output:
         gff="results/{species}/annotation/braker/{species}.braker.gff3",
+        # BRAKER4 writes this itself; declared so filter_braker can depend on it.
+        # Was undeclared -> the DAG only resolved for species where a previous
+        # run had already left the file on disk, and broke on any new species
+        # (scorpioides, 2026-08).
+        support="results/{species}/annotation/braker/output/{species}/results/gene_support.tsv",
     params:
         workdir="results/{species}/annotation/braker",
         repo=BRAKER4_REPO,
@@ -472,21 +477,39 @@ rule import_external_genome:
 
 
 rule filter_braker:
-    """Filter raw BRAKER GFF3 to evidence-supported transcripts using BRAKER's
-    own gene_support.tsv. Keep a transcript if:
+    """TAG raw BRAKER GFF3 genes by evidence support using BRAKER's own
+    gene_support.tsv. A transcript is supported if:
       - multi-exon  & >=1 intron supported by RNA/protein, OR
       - single-exon & its exon supported by RNA/protein.
-    Drops the unsupported single-exon over-prediction reservoir (TE ORFs,
-    fragments). 'any' = RNA or protein evidence (rescues real-but-unexpressed
-    genes); a parallel rnaseq-only count is logged for sensitivity.
+    A GENE is supported if ANY of its transcripts is; its id gets suffixed
+    _rnasupp, otherwise _norna (ID/Parent/gene_id/transcript_id all rewritten).
+    NOTHING IS DROPPED -- the proteome is comprehensive and evidence status is
+    visible in every downstream gene scan, BLAST hit and orthogroup.
+
+    Changed 2026-08 (was: dropped unsupported records). Rationale: D. binata
+    TPXL6 is an intact 139 aa ORF that carries no leaf RNA support; filtering
+    removed it from the proteome, so OrthoFinder scored it as a real gene
+    ABSENCE. Tagging keeps such genes visible and lets scans decide.
+
+    The _norna set is entirely single-exon (checked: paradoxa 43,564/43,564)
+    -- i.e. the TE-ORF / fragment over-prediction reservoir. It scales with
+    genome size and TE content, so it is very unevenly distributed:
+        binata    31,577 rnasupp /    410 norna  ( 1.3%)
+        regia     24,304 /  1,968  ( 7.5%)
+        capensis  27,214 /  2,712  ( 9.1%)
+        paradoxa  53,443 / 42,573  (44.3%)
+    For cross-species COUNT comparisons (copy number, P/A), filter to OGs with
+    >=1 _rnasupp member from an RNA species rather than comparing raw totals.
+
+    'any' = RNA or protein evidence; a parallel rnaseq-only count is logged.
     Produces the production GFF3 for RNA species (Part B)."""
     input:
         gff="results/{species}/annotation/braker/{species}.braker.gff3",
         support="results/{species}/annotation/braker/output/{species}/results/gene_support.tsv",
         awk="workflow/scripts/filter_braker_by_support.awk",
     output:
-        gff="results/{species}/annotation/braker/{species}.braker_filtered.gff3",
-        stats="results/{species}/annotation/braker/{species}.braker_filter_stats.tsv",
+        gff="results/{species}/annotation/braker/{species}.braker_final.gff3",
+        stats="results/{species}/annotation/braker/{species}.braker_support_stats.tsv",
     params:
         agat_env=AGAT_ENV,
         mode="any",
@@ -527,14 +550,14 @@ rule filter_braker:
 
 # tool -> standardized GFF3 path. ab-initio: {sp}.{tool}.gff3; filtered braker special-cased.
 def annotation_tool_gff3(species, tool):
-    if tool == "braker_filtered":
-        return f"results/{species}/annotation/braker/{species}.braker_filtered.gff3"
+    if tool == "braker_final":
+        return f"results/{species}/annotation/braker/{species}.braker_final.gff3"
     return f"results/{species}/annotation/{tool}/{species}.{tool}.gff3"
 
 
 rule extract_proteins:
     """Extract protein FASTA from a tool's GFF3 + frozen genome (AGAT -p).
-    Feeds OMArk + compleasm. tool in {annevo, helixer, tiberius, braker_filtered}."""
+    Feeds OMArk + compleasm. tool in {annevo, helixer, tiberius, braker_final}."""
     input:
         gff=lambda wc: annotation_tool_gff3(wc.species, wc.tool),
         genome=lambda wc: frozen_chr_fasta(wc.species),
@@ -543,7 +566,7 @@ rule extract_proteins:
     params:
         agat_env=AGAT_ENV,
     wildcard_constraints:
-        tool="annevo|helixer|tiberius|braker_filtered",
+        tool="annevo|helixer|tiberius|braker_final",
     log:
         "logs/extract_proteins/{species}.{tool}.log",
     shell:
@@ -588,7 +611,7 @@ rule qc_omark:
         mem_mb=32000,
         runtime=180,
     wildcard_constraints:
-        tool="annevo|helixer|tiberius|braker_filtered",
+        tool="annevo|helixer|tiberius|braker_final",
         db="luca|viridiplantae",
     conda:
         "../../envs/omark.yaml"
@@ -625,7 +648,7 @@ rule omark_merge:
     params:
         env=OMARK_TEST_ENV,
     wildcard_constraints:
-        tool="annevo|helixer|tiberius|braker_filtered",
+        tool="annevo|helixer|tiberius|braker_final",
     log:
         "logs/omark_merge/{species}.{tool}.log",
     shell:
@@ -724,13 +747,13 @@ rule star_align:
 
 # ---- RNA intron-support (bake-off PRIMARY metric) ----
 RNA_SUPPORT_SPECIES = ["Drosera_paradoxa", "Drosera_binata"]
-RNA_SUPPORT_TOOLS = ["annevo", "helixer", "tiberius", "braker_filtered"]
+RNA_SUPPORT_TOOLS = ["annevo", "helixer", "tiberius", "braker_final"]
 
 rule rna_intron_support:
     """Fraction of a tool's predicted introns confirmed by STAR junctions
     (>=3 uniq reads). Independent RNA-based structural-accuracy metric for the
     ab-initio bake-off. Precision = of predicted introns, % STAR-confirmed;
-    recall = of STAR junctions, % predicted. braker_filtered is partly circular
+    recall = of STAR junctions, % predicted. braker_final is partly circular
     (used RNA) -> reported as the RNA-informed reference, not an ab-initio peer."""
     input:
         gff=lambda wc: annotation_tool_gff3(wc.species, wc.tool),
@@ -741,7 +764,7 @@ rule rna_intron_support:
     params:
         min_uniq=3,
     wildcard_constraints:
-        tool="annevo|helixer|tiberius|braker_filtered",
+        tool="annevo|helixer|tiberius|braker_final",
     log:
         "logs/rna_intron_support/{species}.{tool}.log",
     shell:
@@ -779,8 +802,8 @@ def _is_rna(species):
     return str(annotation_df.loc[species, "has_rna"]).strip().lower() in ("yes", "true", "1")
 
 def _final_source_tool(species):
-    """RNA species -> braker_filtered; no-RNA -> annevo (chosen ab-initio winner)."""
-    return "braker_filtered" if _is_rna(species) else "annevo"
+    """RNA species -> braker_final; no-RNA -> annevo (chosen ab-initio winner)."""
+    return "braker_final" if _is_rna(species) else "annevo"
 
 rule omark_classify_genes:
     """Per-gene keep/drop table from OMArk consistency + LUCA-merge attribution.
@@ -794,9 +817,9 @@ rule omark_classify_genes:
     output:
         tsv="results/{species}/annotation/{tool}/{species}.{tool}.gene_class.tsv",
     params:
-        rna_flag=lambda wc: "--rna-evidenced" if wc.tool == "braker_filtered" else "",
+        rna_flag=lambda wc: "--rna-evidenced" if wc.tool == "braker_final" else "",
     wildcard_constraints:
-        tool="annevo|braker_filtered",
+        tool="annevo|braker_final",
     log:
         "logs/omark_classify_genes/{species}.{tool}.log",
     shell:
@@ -818,7 +841,7 @@ rule filter_gff3_by_class:
     output:
         gff="results/{species}/annotation/{tool}/{species}.{tool}.omark_clean.gff3",
     wildcard_constraints:
-        tool="annevo|braker_filtered",
+        tool="annevo|braker_final",
     log:
         "logs/filter_gff3_by_class/{species}.{tool}.log",
     shell:
@@ -831,7 +854,7 @@ rule filter_gff3_by_class:
 
 rule final_annotation:
     """Authoritative annotation for downstream (OrthoFinder, FANTASIA):
-    OMArk-cleaned GFF3 (track tool: RNA->braker_filtered, no-RNA->annevo) copied
+    OMArk-cleaned GFF3 (track tool: RNA->braker_final, no-RNA->annevo) copied
     to a stable path, plus a peptide FASTA extracted from that cleaned GFF3
     (kept genes only; one protein per kept transcript)."""
     input:

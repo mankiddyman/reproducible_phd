@@ -43,6 +43,25 @@ rule freeze_scaffolds:
 
 
 
+rule freeze_scaffolds_pass2_hf:
+    """The _hf branch runs juicer post in scaffold_haphic_pass2_hf_post_juicebox
+    (scaffolding.smk), so there is nothing left to compute here -- just promote
+    step4's FINAL.fa to the stable frozen path that rename_scaffolds reads."""
+    input:
+        final_fa="results/{species}/scaffolding/pass2_hf/step4_post_juicebox/out_JBAT.FINAL.fa",
+    output:
+        frozen_fa="results/{species}/assembly_final/pass2_hf/{species}.frozen.fa",
+    log:
+        "logs/freeze_scaffolds/{species}_pass2_hf.log"
+    shell:
+        r"""
+        set -euo pipefail
+        mkdir -p "$(dirname {output.frozen_fa})" "$(dirname {log})"
+        cp "{input.final_fa}" "{output.frozen_fa}"
+        echo "froze {wildcards.species} (pass2_hf): $(grep -c '^>' {output.frozen_fa}) scaffolds" > "{log}"
+        """
+
+
 rule rename_scaffolds:
     """Apply config/naming/{species}.csv: mapped scaffolds -> chrN_hapM in
     {species}_chr.fa (map order); all others -> unplaced_NNN (by length) in
@@ -55,7 +74,7 @@ rule rename_scaffolds:
         chr_fa="results/{species}/assembly_final/{stage}/{species}_chr.fa",
         unplaced_fa="results/{species}/assembly_final/{stage}/{species}_unplaced.fa",
     wildcard_constraints:
-        stage=r"pass1|onepass|pass2",
+        stage=r"pass1|onepass|pass2|pass2_hf",
     threads: 1
     resources:
         mem_mb=8000,

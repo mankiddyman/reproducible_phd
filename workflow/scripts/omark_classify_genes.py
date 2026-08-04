@@ -53,7 +53,7 @@ ap.add_argument("--ump", required=True); ap.add_argument("--attribution", requir
 ap.add_argument("--gff", required=True); ap.add_argument("--out", required=True)
 ap.add_argument("--species", default="?"); ap.add_argument("--tool", default="?")
 ap.add_argument("--rna-evidenced", action="store_true",
-                help="tool used RNA evidence (e.g. braker_filtered): keep unscored loci as RNA-supported; else drop")
+                help="tool used RNA evidence (e.g. braker_final): keep unscored loci as RNA-supported; else drop")
 a=ap.parse_args()
 
 RNA_EVIDENCED=a.rna_evidenced
