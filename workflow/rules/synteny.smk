@@ -88,6 +88,9 @@ rule genespace_run:
     params:
         wd="results/comparative/genespace",
         mcscanx=config.get("synteny", {}).get("path2mcscanx", ""),
+        # genomeIDs in config/genespace.csv row order; ref = first row
+        ids=",".join(GENESPACE_SPECIES),
+        ref=GENESPACE_SPECIES[0],
     threads: 32
     resources:
         mem_mb=200000,
@@ -112,5 +115,8 @@ rule genespace_run:
         echo "mcscanx=$MCX"               >> "$LOG"
         echo "orthofinder=$(command -v orthofinder)" >> "$LOG"
 
-        Rscript "{input.script}" "$REPO_ROOT/{params.wd}" "$MCX" {threads} >> "$LOG" 2>&1
+        IDS="{params.ids}"
+        REF="{params.ref}"
+        echo "ref=$REF ids=$IDS" >> "$LOG"
+        Rscript "{input.script}" "$REPO_ROOT/{params.wd}" "$MCX" {threads} "$REF" "$IDS" >> "$LOG" 2>&1
         """
