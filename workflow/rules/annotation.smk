@@ -12,6 +12,9 @@
 # + standardized with gffread.
 
 annotation_df = pd.read_csv(config["annotation_table"]).fillna("").set_index("species_id", drop=False)
+if annotation_df.index.has_duplicates:
+    raise ValueError("duplicate species_id in config/annotation.csv: "
+        + ", ".join(annotation_df.index[annotation_df.index.duplicated()].unique()))
 
 # External (collaborator-assembled) genomes — enter the pipeline at the frozen
 # stage; no hifiasm/decon/scaffold. Driven by config/external_genomes.csv, kept
@@ -424,6 +427,11 @@ rule import_external_genome:
     hifiasm/standardize/decon/scaffold and feed annotation directly."""
     input:
         src=lambda wc: external_genomes_df.loc[wc.species, "source_fasta"],
+        # optional: if config/naming/{species}.csv exists, it defines BOTH the
+        # kept set and the output names (old_name,new_name on the SOURCE names),
+        # bypassing the default scaffold{k} -> chr{k}_collapsed renaming.
+        namemap=lambda wc: ([f"config/naming/{wc.species}.csv"]
+                            if _os.path.exists(f"config/naming/{wc.species}.csv") else []),
     output:
         chr="results/{species}/assembly_final/external_collapsed/{species}_chr.fa",
         debris="results/{species}/assembly_final/external_collapsed/{species}_debris.fa",
@@ -444,12 +452,29 @@ rule import_external_genome:
         SRC="{input.src}"
         echo "=== import_external_genome {wildcards.species}: keep scaffold1..scaffold$N ===" > "$LOG"
 
-        # 1. kept set: scaffold1..scaffoldN -> renamed chr{{k}}_collapsed, sorted by k
+        # 1. kept set. Two modes:
+        #    (a) naming map present -> keep exactly its old_names, rename to new_name
+        #    (b) no map             -> scaffold1..scaffoldN -> chr{{k}}_collapsed
+        MAP="config/naming/{wildcards.species}.csv"
+        KEEPLIST="$OUT/_keep.list"
         : > "$OUT/_kept_unsorted.fa"
-        for k in $(seq 1 $N); do
-            samtools faidx "$SRC" "scaffold$k" \
-              | sed "1s/^>scaffold$k.*/>chr${{k}}_collapsed/" >> "$OUT/_kept_unsorted.fa"
-        done
+        if [ -f "$MAP" ]; then
+            NMAP=$(( $(wc -l < "$MAP") - 1 ))
+            echo "naming map: $MAP ($NMAP rows); keep_n from config = $N" >> "$LOG"
+            [ "$NMAP" -eq "$N" ] || {{ echo "ERROR: naming map rows ($NMAP) != keep_n ($N)" >> "$LOG"; exit 1; }}
+            tail -n +2 "$MAP" | tr -d '\r' | while IFS=, read -r old new; do
+                [ -z "$old" ] && continue
+                samtools faidx "$SRC" "$old" \
+                  | sed "1s|^>.*|>$new|" >> "$OUT/_kept_unsorted.fa"
+            done
+            tail -n +2 "$MAP" | tr -d '\r' | cut -d, -f1 | grep -v '^$' > "$KEEPLIST"
+        else
+            for k in $(seq 1 $N); do
+                samtools faidx "$SRC" "scaffold$k" \
+                  | sed "1s/^>scaffold$k.*/>chr${{k}}_collapsed/" >> "$OUT/_kept_unsorted.fa"
+            done
+            for k in $(seq 1 $N); do echo "scaffold$k"; done > "$KEEPLIST"
+        fi
 
         # 2. sort kept records by chromosome number (chr1_collapsed..chrN_collapsed)
         #    seqkit sort by natural name order -> human-readable frozen genome
@@ -457,8 +482,6 @@ rule import_external_genome:
         rm -f "$OUT/_kept_unsorted.fa"
 
         # 3. debris = every scaffold NOT in the kept set (retain for the record)
-        KEEPLIST="$OUT/_keep.list"
-        for k in $(seq 1 $N); do echo "scaffold$k"; done > "$KEEPLIST"
         ALL=$(cut -f1 "$SRC.fai" 2>/dev/null || (samtools faidx "$SRC" && cut -f1 "$SRC.fai"))
         : > "$REPO_ROOT/{output.debris}"
         echo "$ALL" | grep -vxF -f "$KEEPLIST" | while read s; do
@@ -471,7 +494,7 @@ rule import_external_genome:
         grep -c "^>" "$REPO_ROOT/{output.chr}" >> "$LOG"
         echo "debris scaffolds:" >> "$LOG"
         grep -c "^>" "$REPO_ROOT/{output.debris}" >> "$LOG" 2>&1 || echo 0 >> "$LOG"
-        echo "=== chr names (should be chr1_collapsed..chr${{N}}_collapsed in order) ===" >> "$LOG"
+        echo "=== chr names in output ===" >> "$LOG"
         grep "^>" "$REPO_ROOT/{output.chr}" >> "$LOG"
         """
 

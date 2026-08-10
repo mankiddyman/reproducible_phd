@@ -10,6 +10,7 @@ include: "rules/scaffolding.smk"
 include: "rules/finalize.smk"
 include: "rules/annotation.smk"
 include: "rules/comparative.smk"
+include: "rules/synteny.smk"
 
 
 rule all:

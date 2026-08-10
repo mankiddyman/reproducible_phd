@@ -1,0 +1,6 @@
+species_id,stage,chr_regex,genespace_name
+Drosera_capensis,external_collapsed,^chr[0-9]+_collapsed$,capensis
+Drosera_regia,external_collapsed,^chr[0-9]+_collapsed$,regia
+Drosera_binata,pass1,^chr[0-9]+_hap1$,binata
+Drosera_paradoxa,pass2,^chr[0-9]+_hap1$,paradoxa
+Drosera_scorpioides,pass2_hf,^chr[0-9]+_hap1$,scorpioides

@@ -1,3 +1,5 @@
 species_id,source_fasta,chr_number,ploidy
 Drosera_capensis,/netscratch/dep_mercier/grp_marques/Aaryan/Drosera/pan_drosera/genome/D_capensis.fa,40,2
 Drosera_regia,/netscratch/dep_mercier/grp_marques/Aaryan/Drosera/pan_drosera/genome/D_regia.fa,34,2
+Dionaea_muscipula,/netscratch/dep_mercier/grp_marques/Aaryan/Dionaea/muscipula/Files/Dionaea_muscipula_genome.fa,32,2
+Nepenthes_gracilis,/netscratch/dep_mercier/grp_marques/Aaryan/Nepenthes/gracilis/Files/Nepenthes_gracilis_renamed_chr_asm.fa,80,2
