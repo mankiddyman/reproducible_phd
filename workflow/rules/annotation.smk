@@ -481,12 +481,10 @@ rule import_external_genome:
         seqkit sort --natural-order --by-name "$OUT/_kept_unsorted.fa" > "$REPO_ROOT/{output.chr}" 2>> "$LOG"
         rm -f "$OUT/_kept_unsorted.fa"
 
-        # 3. debris = every scaffold NOT in the kept set (retain for the record)
-        ALL=$(cut -f1 "$SRC.fai" 2>/dev/null || (samtools faidx "$SRC" && cut -f1 "$SRC.fai"))
-        : > "$REPO_ROOT/{output.debris}"
-        echo "$ALL" | grep -vxF -f "$KEEPLIST" | while read s; do
-            [ -n "$s" ] && samtools faidx "$SRC" "$s" >> "$REPO_ROOT/{output.debris}"
-        done
+        # 3. debris = every scaffold NOT in the kept set (retain for the record).
+        #    seqkit, not a shell loop: the loop form built a 24k-name variable and
+        #    silently truncated, losing ~20k scaffolds (Dionaea, 2026-08).
+        seqkit grep -v -n -f "$KEEPLIST" "$SRC" > "$REPO_ROOT/{output.debris}" 2>> "$LOG"
         rm -f "$KEEPLIST"
 
         # 4. report
