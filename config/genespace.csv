@@ -1,8 +1,8 @@
-species_id,stage,chr_regex,genespace_name
-Nepenthes_gracilis,external_collapsed,^chr[0-9]+_dom$,N_gracilis
-Dionaea_muscipula,external_collapsed,^chr[0-9]+_sg1_s[0-9]+$,Dio_muscipula
-Drosera_regia,external_collapsed,^chr[0-9]+_collapsed$,regia
-Drosera_binata,pass1,^chr[0-9]+_hap1$,binata
-Drosera_paradoxa,pass2,^chr[0-9]+_hap1$,paradoxa
-Drosera_scorpioides,pass2_hf,^chr[0-9]+_hap1$,scorpioides
-Drosera_capensis,external_collapsed,^chr[0-9]+_collapsed$,capensis
+species_id,stage,chr_regex,genespace_name,ploidy
+Nepenthes_gracilis,external_collapsed,^chr[0-9]+_dom$,N_gracilis,1
+Dionaea_muscipula,external_collapsed,^chr[0-9]+_sg[0-9]+_s[0-9]+$,Dio_muscipula,2
+Drosera_regia,external_collapsed,^chr[0-9]+_collapsed$,regia,3
+Drosera_binata,pass1,^chr[0-9]+_hap1$,binata,3
+Drosera_paradoxa,pass2,^chr[0-9]+_hap1$,paradoxa,3
+Drosera_scorpioides,pass2_hf,^chr[0-9]+_hap1$,scorpioides,3
+Drosera_capensis,external_collapsed,^chr[0-9]+_collapsed$,capensis,6

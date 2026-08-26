@@ -91,7 +91,9 @@ rule genespace_run:
         # genomeIDs in config/genespace.csv row order; ref = first row
         ids=",".join(GENESPACE_SPECIES),
         ref=GENESPACE_SPECIES[0],
-    threads: 32
+        # ploidy in the SAME order as ids -- init_genespace matches positionally
+        ploidy=",".join(str(int(genespace_df.loc[sp, "ploidy"])) for sp in GENESPACE_SPECIES),
+    threads: 48
     resources:
         mem_mb=200000,
         runtime=2880,
@@ -117,6 +119,7 @@ rule genespace_run:
 
         IDS="{params.ids}"
         REF="{params.ref}"
-        echo "ref=$REF ids=$IDS" >> "$LOG"
-        Rscript "{input.script}" "$REPO_ROOT/{params.wd}" "$MCX" {threads} "$REF" "$IDS" >> "$LOG" 2>&1
+        PLOIDY="{params.ploidy}"
+        echo "ref=$REF ids=$IDS ploidy=$PLOIDY" >> "$LOG"
+        Rscript "{input.script}" "$REPO_ROOT/{params.wd}" "$MCX" {threads} "$REF" "$IDS" "$PLOIDY" >> "$LOG" 2>&1
         """

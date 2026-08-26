@@ -1,6 +1,6 @@
 #!/usr/bin/env Rscript
 # GENESPACE v1.3.1. Called by rule genespace_run (workflow/rules/synteny.smk).
-# Args: <wd> <path2mcscanx> <nCores> <refGenome> <genomeID1,genomeID2,...>
+# Args: <wd> <path2mcscanx> <nCores> <refGenome> <genomeID1,...> <ploidy1,...>
 # wd must already contain bed/ and peptide/; GENESPACE writes its outputs there.
 suppressMessages(library(GENESPACE))
 
@@ -10,15 +10,21 @@ mcscanx <- normalizePath(args[2], mustWork = TRUE)
 ncores  <- as.integer(args[3])
 refGen  <- args[4]
 genomeIDs <- strsplit(args[5], ",")[[1]]
+# positional against genomeIDs -- a silent misalignment here truncates real
+# homoeologous blocks with no error, so assert and log the pairing
+ploidy <- as.integer(strsplit(args[6], ",")[[1]])
+stopifnot(length(ploidy) == length(genomeIDs), !any(is.na(ploidy)), all(ploidy >= 1))
 
 cat("wd:      ", wd, "\nmcscanx: ", mcscanx, "\nnCores:  ", ncores,
-    "\nref:     ", refGen, "\ngenomes: ", paste(genomeIDs, collapse = ", "), "\n")
+    "\nref:     ", refGen, "\n")
+cat("genomes (ploidy):\n"); print(stats::setNames(ploidy, genomeIDs))
 
 # fails loudly on a malformed bed/peptide pair rather than deep inside the run
 for (g in genomeIDs) check_annotFiles(filepath = wd, genomeIDs = c(g))
 
 gpar <- init_genespace(wd = wd, path2mcscanx = mcscanx,
-                       genomeIDs = genomeIDs, nCores = ncores)
+                       genomeIDs = genomeIDs, ploidy = ploidy, nCores = ncores)
+cat("useHOGs resolved to: ", gpar$params$useHOGs, "\n")
 out  <- run_genespace(gpar, overwrite = TRUE)
 
 # --- white-background riparian (supervisor-facing) ---
