@@ -492,6 +492,10 @@ rule import_external_genome:
         grep -c "^>" "$REPO_ROOT/{output.chr}" >> "$LOG"
         echo "debris scaffolds:" >> "$LOG"
         grep -c "^>" "$REPO_ROOT/{output.debris}" >> "$LOG" 2>&1 || echo 0 >> "$LOG"
+        # invalidate any .fai from a previous import: the sequence NAMES change but
+        # the file path does not, so a stale index makes gffread/samtools seek to
+        # wrong offsets and abort (Nepenthes rename, 2026-08).
+        rm -f "$REPO_ROOT/{output.chr}.fai" "$REPO_ROOT/{output.debris}.fai"
         echo "=== chr names in output ===" >> "$LOG"
         grep "^>" "$REPO_ROOT/{output.chr}" >> "$LOG"
         """
