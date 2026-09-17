@@ -5,7 +5,7 @@ own directory. Sequence names are shortened because PAML dislikes '@' and '.'.""
 import os, sys, subprocess, csv, shutil
 
 ROOT = "/netscratch/dep_mercier/grp_marques/Aaryan/reproducible_phd/results/comparative/subgenome_prototype"
-ALN  = os.path.join(ROOT, "wgd7/codon_gap")
+ALN  = os.path.join(ROOT, "DR/codon")
 chunk_file, out_csv, tmpdir = sys.argv[1], sys.argv[2], sys.argv[3]
 os.makedirs(tmpdir, exist_ok=True)
 
