@@ -64,7 +64,9 @@ rule annotate_repeats_carp:
         cpus_per_task=lambda wc: int(_carp_res(wc.species)["threads"]),
         mem_mb=lambda wc: int(_carp_res(wc.species)["mem_mb"]),
         slurm_partition=lambda wc: _carp_res(wc.species)["partition"],
-        slurm_extra=lambda wc: "'--time=%s --exclude=hpc15'" % _carp_res(wc.species)["time"],
+        # no inner quotes here: the plugin pastes this into the sbatch command line as it is
+        # (the extra quotes in profiles/slurm/config.yaml are removed when Snakemake reads the profile)
+        slurm_extra=lambda wc: "--time=%s --exclude=hpc15" % _carp_res(wc.species)["time"],
     wildcard_constraints:
         species="|".join(REPEAT_SPECIES),
     retries: 1
@@ -174,7 +176,7 @@ rule publish_repeats:
     resources:
         mem_mb=8000,
         cpus_per_task=2,
-        slurm_extra="'--time=02:00:00 --exclude=hpc15'",
+        slurm_extra="--time=02:00:00 --exclude=hpc15",
     log:
         "logs/publish_repeats/{species}.log",
     run:

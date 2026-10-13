@@ -65,4 +65,4 @@ repeats:
   tidecluster_reannotate_culling_limit: 0
   resources:
     default:          {threads: 64, mem_mb: 480000, partition: normal, time: "2-00:00:00"}
-    Drosera_paradoxa: {threads: 96, mem_mb: 720000, partition: normal, time: "2-00:00:00"}
+    Drosera_paradoxa: {threads: 127, mem_mb: 900000, partition: normal, time: "2-00:00:00"}
