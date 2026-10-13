@@ -50,3 +50,19 @@ annotation:
   braker4_cache: "/netscratch/dep_mercier/grp_marques/Aaryan/methods/BRAKER4/.singularity_cache"
   orthodb_viridiplantae: "/netscratch/dep_mercier/grp_marques/Aaryan/methods/orthodb/Viridiplantae.fa"
   braker4_busco_lineage: "eudicotyledons_odb12.2"
+# ---- Repeats (CARP: TEs, satellites, 45S/5S rDNA) ----
+# One CARP run per species on the frozen two-haplotype {species}_chr.fa
+# (workflow/rules/repeats.smk). Image fetched by scripts/fetch_carp_sif.sh.
+repeats:
+  carp_version: "1.9.5"
+  carp_sif: "/netscratch/dep_mercier/grp_marques/Aaryan/methods/carp/carp_1.9.5.sif"
+  species: [Drosera_paradoxa, Drosera_binata]
+  repeatmasker_sensitivity: default
+  # rmblastn culling for the genome-wide RepeatMasker step: CARP's recommended
+  # 2 is ~3x faster at -0.7% masked bp. Left OFF (0) for the tandem-repeat
+  # remasking, which CARP warns can under-mask large satellite arrays.
+  repeatmasker_culling_limit: 2
+  tidecluster_reannotate_culling_limit: 0
+  resources:
+    default:          {threads: 64, mem_mb: 480000, partition: normal, time: "2-00:00:00"}
+    Drosera_paradoxa: {threads: 96, mem_mb: 720000, partition: normal, time: "2-00:00:00"}
