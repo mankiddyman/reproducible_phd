@@ -59,6 +59,9 @@ rule annotate_repeats_carp:
         rm_culling=int(REPEATS_CFG.get("repeatmasker_culling_limit", 2)),
         tc_culling=int(REPEATS_CFG.get("tidecluster_reannotate_culling_limit", 0)),
         version=CARP_VERSION,
+        # extra arguments for CARP's own Snakemake (config: repeats.resources.<species>.carp_extra),
+        # e.g. "--set-threads dante=32" to cap one step's workers
+        extra=lambda wc: str(_carp_res(wc.species).get("carp_extra", "")),
     threads: lambda wc: int(_carp_res(wc.species)["threads"])
     resources:
         cpus_per_task=lambda wc: int(_carp_res(wc.species)["threads"]),
@@ -109,8 +112,34 @@ EOF
           echo "=== CARP {params.version} for {wildcards.species} on $(hostname), $(date)"
           echo "    job ${{SLURM_JOB_ID:-local}}, $T threads, $MEM_GB GB, runtime $RT ($("$RT" --version 2>&1))"
           echo "    image {input.sif}"
+          echo "    node memory: overcommit_memory=$(cat /proc/sys/vm/overcommit_memory) ratio=$(cat /proc/sys/vm/overcommit_ratio);" \
+               "$(grep -E '^(MemTotal|MemAvailable|CommitLimit|Committed_AS)' /proc/meminfo | tr -s ' ' | tr '\n' ' ')"
+          echo "    limits: virtual memory $(ulimit -v), processes $(ulimit -u), open files $(ulimit -n)"
+          echo "    CARP's Snakemake gets: --rerun-incomplete --nolock {params.extra}"
           cat "$CFG"
         }} >> "$LOG"
+        # Resuming: a TideCluster step that was interrupted leaves files that TideCluster refuses to
+        # overwrite ('pass --force'), so the rerun fails at once. CARP's Snakemake marks the outputs of
+        # an interrupted step as incomplete; when a TideCluster step is marked, clear its folder first.
+        python3 - "$RUN/.snakemake/incomplete" "$OUT" >> "$LOG" 2>&1 <<'PYEOF'
+import base64, os, shutil, sys
+inc, out = sys.argv[1], sys.argv[2]
+paths = []
+for root, dirs, files in os.walk(inc):
+    rel = os.path.relpath(root, inc)
+    pre = "" if rel == "." else "".join(x.lstrip("@") for x in rel.split(os.sep))
+    for f in files:
+        b = pre + f
+        try:
+            paths.append(base64.urlsafe_b64decode(b + "=" * (-len(b) % 4)).decode())
+        except Exception:
+            pass
+for sub in ("TideCluster/default", "TideCluster/short_monomer"):
+    d = os.path.join(out, sub)
+    if os.path.isdir(d) and any(p.startswith(d + "/") for p in paths):
+        shutil.rmtree(d)
+        print("    resume: removed the interrupted %s (CARP reruns that step from the start)" % d)
+PYEOF
         # bind /netscratch (repo, image, outputs) and the genome's top directory if
         # it lives elsewhere; /tmp inside the container is a folder on netscratch
         # (node-local /scratch filled up during ANNEVO)
@@ -129,7 +158,7 @@ EOF
             -B "$RUN/tmp:/tmp" -B "$RUN/tmp:/var/tmp" \
             "{input.sif}" \
             -c "$CFG" -t $T -m $MEM_GB \
-            -S="--rerun-incomplete --nolock" >> "$LOG" 2>&1
+            -S="--rerun-incomplete --nolock {params.extra}" >> "$LOG" 2>&1
         rc=$?
         set -e
         echo "=== CARP exit $rc at $(date)" >> "$LOG"
