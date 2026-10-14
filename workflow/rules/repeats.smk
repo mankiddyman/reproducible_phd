@@ -69,7 +69,8 @@ rule annotate_repeats_carp:
         slurm_partition=lambda wc: _carp_res(wc.species)["partition"],
         # no inner quotes here: the plugin pastes this into the sbatch command line as it is
         # (the extra quotes in profiles/slurm/config.yaml are removed when Snakemake reads the profile)
-        slurm_extra=lambda wc: "--time=%s --exclude=hpc15" % _carp_res(wc.species)["time"],
+        slurm_extra=lambda wc: "--time=%s --exclude=%s" % (_carp_res(wc.species)["time"],
+                                                        _carp_res(wc.species).get("exclude", "hpc15")),
     wildcard_constraints:
         species="|".join(REPEAT_SPECIES),
     retries: 1
@@ -84,6 +85,7 @@ rule annotate_repeats_carp:
         OUT="$REPO_ROOT/{params.outdir}"
         RUN="$REPO_ROOT/{params.rundir}"
         GENOME=$(readlink -f "$REPO_ROOT/{input.genome}")
+        rm -rf "$RUN/tmp"
         mkdir -p "$OUT" "$RUN/tmp" "$(dirname "$LOG")"
         set +eu
         module load singularity-binds 2>/dev/null || module load singularity 2>/dev/null
@@ -92,11 +94,21 @@ rule annotate_repeats_carp:
         if [ -z "$RT" ]; then
             echo "no apptainer or singularity on $(hostname)" >> "$LOG"; exit 1
         fi
-        # threads: what Slurm gave the job; memory: CARP sizes its memory-hungry
-        # worker pools from -m, and inside a container /proc/meminfo shows the
-        # whole node, so give it 90% of the allocation
+        # threads: what Slurm gave the job. Memory: CARP sizes its memory-hungry worker pools from -m.
+        # These nodes use strict overcommit (vm.overcommit_memory=2): the kernel refuses new memory once
+        # the node's committed total reaches CommitLimit, and processes outside Slurm can hold hundreds
+        # of GB of it (698 GB on hpc04 on 2026-10-14, when DANTE's fork of 127 workers failed with ENOMEM).
+        # So -m is the smallest of: 90% of the allocation, 80% of what the node can still commit,
+        # 90% of what it has available.
         T=${{SLURM_CPUS_PER_TASK:-{threads}}}
-        MEM_GB=$(( {resources.mem_mb} * 9 / 10 / 1000 ))
+        ALLOC_GB=$(( {resources.mem_mb} * 9 / 10 / 1000 ))
+        read CL_KB CA_KB MA_KB < <(awk '/^CommitLimit:/ {{cl = $2}} /^Committed_AS:/ {{ca = $2}} /^MemAvailable:/ {{ma = $2}} END {{print cl, ca, ma}}' /proc/meminfo)
+        MEM_GB=$ALLOC_GB
+        ROOM_GB=$(( (CL_KB - CA_KB) / 1048576 * 8 / 10 ))
+        AVAIL_GB=$(( MA_KB / 1048576 * 9 / 10 ))
+        if [ "$(cat /proc/sys/vm/overcommit_memory)" = 2 ] && [ $ROOM_GB -lt $MEM_GB ]; then MEM_GB=$ROOM_GB; fi
+        if [ $AVAIL_GB -lt $MEM_GB ]; then MEM_GB=$AVAIL_GB; fi
+        if [ $MEM_GB -lt 16 ]; then MEM_GB=16; fi
         CFG="$RUN/carp_config.yaml"
         cat > "$CFG" <<EOF
 genome_fasta: $GENOME
@@ -115,6 +127,8 @@ EOF
           echo "    node memory: overcommit_memory=$(cat /proc/sys/vm/overcommit_memory) ratio=$(cat /proc/sys/vm/overcommit_ratio);" \
                "$(grep -E '^(MemTotal|MemAvailable|CommitLimit|Committed_AS)' /proc/meminfo | tr -s ' ' | tr '\n' ' ')"
           echo "    limits: virtual memory $(ulimit -v), processes $(ulimit -u), open files $(ulimit -n)"
+          echo "    memory budget for CARP: $MEM_GB GB (90% of the allocation $ALLOC_GB GB; 80% of the node's" \
+               "commit room $(( ROOM_GB * 10 / 8 )) GB; 90% of available $(( AVAIL_GB * 10 / 9 )) GB)"
           echo "    CARP's Snakemake gets: --rerun-incomplete --nolock {params.extra}"
           cat "$CFG"
         }} >> "$LOG"

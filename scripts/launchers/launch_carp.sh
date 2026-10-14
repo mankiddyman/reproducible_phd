@@ -15,7 +15,7 @@ echo "started $(date) on $(hostname); $(command -v snakemake) $(snakemake --vers
 # targets first: --allowed-rules takes every word after it as a rule name. It also
 # keeps Snakemake from re-running anything upstream of the frozen assemblies.
 snakemake "$REFS/Drosera_paradoxa_repeats/MANIFEST.txt" "$REFS/Drosera_binata_repeats/MANIFEST.txt" \
-    --profile profiles/slurm --printshellcmds \
+    --profile profiles/slurm --printshellcmds --rerun-incomplete \
     --allowed-rules annotate_repeats_carp publish_repeats 2>&1 | tee -a "$LOG"
 rc=${PIPESTATUS[0]}
 echo "snakemake exit $rc at $(date)" | tee -a "$LOG"
