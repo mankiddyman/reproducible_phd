@@ -19,6 +19,12 @@
 # and the retried job continues with --rerun-incomplete. Only the final files
 # are declared as outputs, so Snakemake never deletes CARP's work in progress.
 #
+# Side steps do not block the annotation: CARP's Snakemake runs with --keep-going
+# (config carp_extra), and a run that exits non-zero is accepted when the two
+# files published from it (Repeat_Annotation_Unified.gff3, summary_statistics.csv)
+# are complete. The steps that failed (density tracks, the HTML report) are named
+# in carp.done and in the published MANIFEST.
+#
 # The image is fetched once on the login node by scripts/fetch_carp_sif.sh
 # (compute nodes need no internet). Consumers (CO_smk) read the published copy
 # in refs/{species}_repeats/, never results/.
@@ -57,6 +63,8 @@ rule annotate_repeats_carp:
         rundir="results/{species}/repeats/carp_run",
         rm_sensitivity=REPEATS_CFG.get("repeatmasker_sensitivity", "default"),
         rm_culling=int(REPEATS_CFG.get("repeatmasker_culling_limit", 2)),
+        # concurrent workers in CARP's density-track (BigWig) steps; CARP's default 0 = one per thread
+        bigwig_workers=int(REPEATS_CFG.get("bigwig_max_workers", 16)),
         tc_culling=int(REPEATS_CFG.get("tidecluster_reannotate_culling_limit", 0)),
         version=CARP_VERSION,
         # extra arguments for CARP's own Snakemake (config: repeats.resources.<species>.carp_extra),
@@ -109,6 +117,8 @@ rule annotate_repeats_carp:
         if [ "$(cat /proc/sys/vm/overcommit_memory)" = 2 ] && [ $ROOM_GB -lt $MEM_GB ]; then MEM_GB=$ROOM_GB; fi
         if [ $AVAIL_GB -lt $MEM_GB ]; then MEM_GB=$AVAIL_GB; fi
         if [ $MEM_GB -lt 16 ]; then MEM_GB=16; fi
+        # open files: the soft limit is 1024 on these nodes, and CARP raises it for only a few of its steps
+        ulimit -n "$(ulimit -Hn)" 2> /dev/null || true
         CFG="$RUN/carp_config.yaml"
         cat > "$CFG" <<EOF
 genome_fasta: $GENOME
@@ -118,6 +128,7 @@ repeatmasker_culling_limit: {params.rm_culling}
 tidecluster_reannotate_culling_limit: {params.tc_culling}
 tidecluster_detect_rdna: true
 max_memory_gb: $MEM_GB
+bigwig_max_workers: {params.bigwig_workers}
 cleanup_intermediates: minimal
 EOF
         {{
@@ -176,7 +187,33 @@ PYEOF
         rc=$?
         set -e
         echo "=== CARP exit $rc at $(date)" >> "$LOG"
-        [ $rc -eq 0 ] || exit $rc
+        FAILED=none
+        if [ $rc -ne 0 ]; then
+            # CARP ran with --keep-going, so a failed side step did not stop the rest. Accept the run when
+            # the two files published from it are complete: present, not empty, and not marked incomplete
+            # by CARP's Snakemake. Otherwise fail (and Snakemake retries once; CARP resumes).
+            python3 - "$RUN/.snakemake/incomplete" "$OUT/Repeat_Annotation_Unified.gff3" "$OUT/summary_statistics.csv" >> "$LOG" 2>&1 <<'PYEOF' || exit $rc
+import base64, os, sys
+inc, need = sys.argv[1], sys.argv[2:]
+marked = set()
+for root, dirs, files in os.walk(inc):
+    rel = os.path.relpath(root, inc)
+    pre = "" if rel == "." else "".join(x.lstrip("@") for x in rel.split(os.sep))
+    for f in files:
+        b = pre + f
+        try:
+            marked.add(base64.urlsafe_b64decode(b + "=" * (-len(b) % 4)).decode())
+        except Exception:
+            pass
+bad = [p for p in need if not os.path.exists(p) or os.path.getsize(p) == 0 or p in marked]
+for p in bad:
+    print("    not complete: %s" % p)
+sys.exit(1 if bad else 0)
+PYEOF
+            FAILED=$(grep -o -E "Error in rule [A-Za-z0-9_]+" "$LOG" | awk '{{print $4}}' | sort -u | paste -sd, - || true)
+            FAILED=${{FAILED:-unknown}}
+            echo "=== CARP: the annotation and its statistics are complete; side steps that failed: $FAILED" >> "$LOG"
+        fi
         test -s "$OUT/Repeat_Annotation_Unified.gff3"
         test -s "$OUT/summary_statistics.csv"
         rm -rf "$RUN/tmp" "$RUN/sif_tmp"
@@ -186,6 +223,8 @@ PYEOF
           echo "genome: $GENOME"
           echo "finished: $(date -Iseconds)"
           echo "host: $(hostname)"
+          echo "carp_exit: $rc"
+          echo "carp_failed_steps: $FAILED"
         }} > "$REPO_ROOT/{output.done}"
         """
 
@@ -327,6 +366,10 @@ rule publish_repeats:
             fh.write("frozen_stage:     %s\n" % annotation_df.loc[wildcards.species, "frozen_stage"])
             fh.write("source_results:   %s\n" % os.path.abspath(params.outdir))
             fh.write("repo_commit:      %s%s\n" % (commit, "  (DIRTY WORKING TREE)" if dirty else ""))
+            carp_done = dict(l.rstrip("\n").split(": ", 1) for l in open(input.done) if ": " in l)
+            fh.write("carp_exit:        %s\n" % carp_done.get("carp_exit", "0"))
+            fh.write("carp_failed_steps: %s (side steps; the files here do not depend on them)\n"
+                     % carp_done.get("carp_failed_steps", "none"))
             fh.write("sequences:        %d (%.3f Gb); annotated: %d\n" % (
                 sum(1 for _ in open(output.seqs)) - 1, total / 1e9, len(seqids)))
             fh.write("files:            Repeat_Annotation_Unified.gff3, rDNA.gff3, tandem_repeats.gff3, "

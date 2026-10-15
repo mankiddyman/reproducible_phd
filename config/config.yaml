@@ -63,13 +63,18 @@ repeats:
   # remasking, which CARP warns can under-mask large satellite arrays.
   repeatmasker_culling_limit: 2
   tidecluster_reannotate_culling_limit: 0
+  # CARP's density-track (BigWig) steps: at most this many workers at once (CARP's 0 = one per thread)
+  bigwig_max_workers: 16
   resources:
     # Both species on a whole node (127 cores, 900 GB), 4-day limit. carp_extra goes to CARP's own Snakemake:
-    #   --set-threads dante=64: DANTE forks one copy of itself per worker; with 127 copies the node ran out
-    #     of memory it could commit (strict overcommit: ~1.2 TB per node, every fork counted in full).
-    #   --set-resources tidecluster_*:mem_mb=8192: TideCluster's memory budget becomes 8 GB, which caps its
-    #     TAREAN step at one thread per satellite family, so R makes no forked copies of itself. At 5
-    #     threads x 12 families, binata's TAREAN was refused memory for its forks (2026-10-14). TAREAN's
-    #     output does not depend on its thread count. TideHunter ignores this budget while the genome
-    #     splits into no more parts (genome x 1.1 / 50 Mb) than threads: paradoxa ~97, binata ~32.
-    default: {threads: 127, mem_mb: 900000, partition: normal, time: "4-00:00:00", exclude: "hpc04,hpc15", carp_extra: "--set-threads dante=64 --set-resources tidecluster_long:mem_mb=8192 tidecluster_short:mem_mb=8192"}
+    #   --keep-going: a failed side step (density tracks, the HTML report) does not stop the annotation;
+    #     repeats.smk accepts a run whose Repeat_Annotation_Unified.gff3 and summary_statistics.csv are complete.
+    #   --set-threads dante=64: DANTE forks one copy of itself per worker; 127 copies ran out of the memory
+    #     the node could commit (strict overcommit: ~1.2 TB per node, every fork counted in full).
+    #   --set-threads dante_ltr/dante_tir/dante_line/dante_tir_fallback=63: two of them run side by side
+    #     (DANTE_LTR and DANTE_TIR averaged ~8 and ~3 cores on binata). CARP's results do not depend on threads.
+    #   --set-resources tidecluster_*:mem_mb=8192: TideCluster's memory budget becomes 8 GB, which caps TAREAN
+    #     at one thread per satellite family, so R makes no forked copies of itself (binata, 2026-10-14).
+    #     TideHunter ignores this budget while the genome splits into no more parts (genome x 1.1 / 50 Mb)
+    #     than threads: paradoxa ~97, binata ~32.
+    default: {threads: 127, mem_mb: 900000, partition: normal, time: "4-00:00:00", exclude: "hpc04,hpc15", carp_extra: "--keep-going --set-threads dante=64 dante_ltr=63 dante_tir=63 dante_line=63 dante_tir_fallback=63 --set-resources tidecluster_long:mem_mb=8192 tidecluster_short:mem_mb=8192"}
