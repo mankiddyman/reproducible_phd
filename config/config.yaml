@@ -89,4 +89,4 @@ repeats:
     #     at one thread per satellite family, so R makes no forked copies of itself (binata, 2026-10-14).
     #     TideHunter ignores this budget while the genome splits into no more parts (genome x 1.1 / 50 Mb)
     #     than threads: paradoxa ~97, binata ~32.
-    default: {threads: 127, mem_mb: 900000, partition: normal, time: "4-00:00:00", exclude: "hpc04,hpc15", carp_extra: "--keep-going --set-threads dante=64 dante_ltr=63 dante_tir=63 dante_line=63 dante_tir_fallback=63 --set-resources tidecluster_long:mem_mb=8192 tidecluster_short:mem_mb=8192"}
+    default: {threads: 127, mem_mb: 900000, partition: normal, time: "4-00:00:00", exclude: "hpc04,hpc07,hpc15", carp_extra: "--keep-going --set-threads dante=64 dante_ltr=63 dante_tir=63 dante_line=63 dante_tir_fallback=63 --set-resources tidecluster_long:mem_mb=8192 tidecluster_short:mem_mb=8192"}
