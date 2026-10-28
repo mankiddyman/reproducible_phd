@@ -2,29 +2,49 @@
 # carp_launch.sh -- CARP repeat + rDNA annotation (rule annotate_repeats_carp, then publish_repeats)
 # for every species in config/annotation.csv not yet published to refs/. Checks first; submits only
 # if every check passes:
+#   0  this host resolves your user and Slurm accepts a submission from it (sbatch --test-only)
 #   1  Snakemake submits through Slurm (profiles/slurm); nothing else holds the repo
 #   2  the CARP image is the one the published species were annotated with (sha256 in their MANIFESTs)
 #   3  each job's Slurm time limit is >= 1.5x its runtime predicted from D. paradoxa (9.2 h for 4.30 Gb)
-#   4  BAM/BAI/tabix in what CARP made for paradoxa (scorpioides has 2 chromosomes > 2^29 bp,
-#      beyond what BAI or .tbi can address) -- informational
-#   5  dry run: published species get no jobs, every other species exactly 2 (annotate + publish)
-# Then one detached controller (setsid nohup): at most 4 species at a time, scorpioides first.
-# Report: /tmp/carp_gate_<time>.txt. Status at any time: scripts/carp_status.sh
+#   4  BAM/BAI/tabix in what CARP made for paradoxa (scorpioides has 2 chromosomes > 2^29 bp) -- informational
+#   5  dry run restricted to the two CARP rules: published species get no jobs, every other species
+#      exactly 2 (annotate + publish), no other rule. The unrestricted dry run is reported alongside:
+#      under --rerun-triggers mtime, editing a config file the assembly rules read makes Snakemake
+#      want to rebuild every frozen assembly. --allowed-rules keeps CARP on the frozen FASTAs as they are.
+# Then one detached controller (setsid nohup), at most 4 species at a time, scorpioides first.
+# Report: logs/carp_gate_<time>.txt. Status at any time: scripts/carp_status.sh
 RP=/netscratch/dep_mercier/grp_marques/Aaryan/reproducible_phd
 ENV=/netscratch/dep_mercier/grp_marques/Aaryan/micromamba_envs/smk
 SIF=/netscratch/dep_mercier/grp_marques/Aaryan/methods/carp/carp_1.9.5.sif
 REFS=/netscratch/dep_mercier/grp_marques/Aaryan/refs
 CFG=config/config.yaml
+CARP_RULES="annotate_repeats_carp publish_repeats"
 export PATH=$ENV/bin:$PATH
+ME=$(id -u)
 cd "$RP" || exit 1
 TS=$(date +%Y%m%d_%H%M%S)
-REP=/tmp/carp_gate_$TS.txt
+REP=$RP/logs/carp_gate_$TS.txt
 STOPF=/tmp/carp_stop_$TS; : > "$STOPF"
 stop() { echo "  STOP  $*"; echo "$*" >> "$STOPF"; }
 SPECIES=$(awk -F, 'NR>1 && $1!="" {print $1}' config/annotation.csv)
+jobs_tsv() {   # Snakemake dry-run log -> one line per planned job: rule <TAB> species <TAB> reason
+  awk 'function flush() { if (rule != "") print rule "\t" sp "\t" rsn; rule = ""; sp = ""; rsn = "" }
+       /^(local)?(rule|checkpoint) [A-Za-z0-9_]+:/ { flush(); rule = $2; sub(/:$/, "", rule); next }
+       /^[[:space:]]+reason:/ { rsn = $0; sub(/^[[:space:]]+reason:[[:space:]]*/, "", rsn); next }
+       /^[[:space:]]+wildcards:/ { if (match($0, /species=[A-Za-z0-9_]+/)) sp = substr($0, RSTART + 8, RLENGTH - 8); next }
+       /^Job stats:/ { flush() }
+       END { flush() }' "$1"
+}
 
 {
 echo "CARP on every species: checks first, submit only if all pass   ($(date '+%F %T'), $(hostname))"
+
+echo; echo "=== 0. this host can run the controller"
+if getent passwd "$ME" > /dev/null; then echo "  OK    $(hostname) resolves uid $ME"
+else stop "$(hostname) cannot resolve your user (uid $ME); pgrep and git fail here too. Run scripts/carp_launch.sh on hpc09"; fi
+if sbatch --test-only -p normal -t 1 -c 1 --mem=100M --wrap true > /tmp/carp_sbtest_$TS.txt 2>&1; then
+  echo "  OK    Slurm accepts a test submission from $(hostname)"
+else stop "sbatch --test-only refused from $(hostname): $(head -1 /tmp/carp_sbtest_$TS.txt)"; fi
 
 echo; echo "=== 1. Snakemake submits to Slurm, nothing else holds the repo"
 if grep -qE "^executor:[ \"']*slurm" profiles/slurm/config.yaml 2>/dev/null; then echo "  OK    profiles/slurm submits to Slurm"
@@ -32,9 +52,9 @@ else stop "profiles/slurm/config.yaml has no 'executor: slurm': jobs would run o
 python3 -c "import snakemake_executor_plugin_slurm" 2>/dev/null && echo "  OK    slurm executor plugin, snakemake $(snakemake --version)" \
   || stop "snakemake-executor-plugin-slurm not importable from $ENV"
 NL=$(ls .snakemake/locks 2>/dev/null | wc -l)
-if [ "$NL" -gt 0 ]; then stop "$NL lock file(s) in .snakemake/locks: another Snakemake may be running in this repo ($(pgrep -u "$USER" -fc snakemake) snakemake processes on $(hostname); check the other nodes)"
+if [ "$NL" -gt 0 ]; then stop "$NL lock file(s) in .snakemake/locks: another Snakemake may be running in this repo ($(pgrep -u "$ME" -fc snakemake) snakemake processes on $(hostname); check the other nodes)"
 else echo "  OK    no lock on the repo"; fi
-if pgrep -u "$USER" -f "snakemake.*_repeats/MANIFEST.txt" > /dev/null; then stop "a CARP controller is already running on $(hostname): see scripts/carp_status.sh"; fi
+if pgrep -u "$ME" -f "snakemake.*_repeats/MANIFEST.txt" > /dev/null; then stop "a CARP controller is already running on $(hostname): see scripts/carp_status.sh"; fi
 
 echo; echo "=== 2. same image as the published species were annotated with"
 if [ -s "$SIF" ]; then
@@ -78,29 +98,40 @@ PY
 
 echo; echo "=== 4. BAM/BAI/tabix in what CARP made for paradoxa (scorpioides: 2 chromosomes > 2^29 bp)"
 STEPS=$(grep -ohE "^(local)?rule [A-Za-z0-9_]+" logs/annotate_repeats_carp/Drosera_paradoxa.log 2>/dev/null | awk '{print $2}' | sort -u)
-echo "  CARP steps that ran ($(echo $STEPS | wc -w)): $(echo $STEPS | tr ' ' ',')" | fold -w 150 -s | sed '2,$s/^/    /'
 IDX=$(find results/Drosera_paradoxa/repeats -type f \( -name "*.bai" -o -name "*.csi" -o -name "*.tbi" -o -name "*.bam" \) 2>/dev/null | head -5 | tr '\n' ' ')
 ISTEP=$(echo "$STEPS" | grep -iE "bam|bai|tabix|index" | tr '\n' ' ')
 if [ -z "$STEPS" ]; then echo "  note  no step list in the paradoxa log, so unverified"
-elif [ -z "$IDX$ISTEP" ]; then echo "  OK    no BAM/BAI/tabix step or file: the 2^29 limit does not touch scorpioides"
-else echo "  note  CARP makes indexes ($ISTEP$IDX). If one fails on scorpioides it is a side step: the rule still accepts the run once the unified GFF and its statistics exist, and lists the failed step in carp.done"; fi
+elif [ -z "$IDX$ISTEP" ]; then echo "  OK    none of CARP's $(echo $STEPS | wc -w) steps or files is a BAM/BAI/tabix index: the 2^29 limit does not touch scorpioides"
+else echo "  note  CARP makes indexes ($ISTEP$IDX); a failure there is a side step, which the rule tolerates once the unified GFF and its statistics exist"; fi
 
-echo; echo "=== 5. dry run on all $(echo $SPECIES | wc -w) species (nothing is submitted)"
 ALL=$(for sp in $SPECIES; do printf '%s ' "$REFS/${sp}_repeats/MANIFEST.txt"; done)
-snakemake $ALL -n --nolock --rerun-triggers mtime --profile profiles/slurm > /tmp/carp_dry_$TS.log 2>&1
+echo; echo "=== 5a. what an unrestricted run would also redo (reported only)"
+snakemake $ALL -n --nolock --rerun-triggers mtime --profile profiles/slurm > logs/carp_dry_full_$TS.log 2>&1
+jobs_tsv logs/carp_dry_full_$TS.log > /tmp/carp_jobs_full_$TS.tsv
+echo "  $(wc -l < /tmp/carp_jobs_full_$TS.tsv) jobs, of which outside the CARP rules: $(awk -F'\t' '$1 != "annotate_repeats_carp" && $1 != "publish_repeats"' /tmp/carp_jobs_full_$TS.tsv | wc -l)"
+echo "  root causes (jobs whose reason is not 'Input files updated by another job'):"
+awk -F'\t' '$3 !~ /^Input files updated by another job/ {print $1 ": " substr($3, 1, 150)}' /tmp/carp_jobs_full_$TS.tsv | sort | uniq -c | sort -rn | head -12 | sed 's/^/   /'
+echo "  config files, last modified:"
+for f in config/species.csv config/external_genomes.csv config/annotation.csv "$CFG"; do echo "    $(date -r "$f" '+%F %T')  $f"; done
+
+echo; echo "=== 5b. dry run restricted to the CARP rules (the check)"
+snakemake $ALL --allowed-rules $CARP_RULES -n --nolock --rerun-triggers mtime --profile profiles/slurm > logs/carp_dry_$TS.log 2>&1
 rc=$?
-sed -n '/^Job stats:/,/^$/p' /tmp/carp_dry_$TS.log | sed 's/^/  /'
+awk '/^Job stats:/{f=1} f{print} f && /^total/{exit}' logs/carp_dry_$TS.log | sed 's/^/  /'
 if [ $rc -ne 0 ]; then
-  stop "dry run failed (exit $rc), log /tmp/carp_dry_$TS.log"
-  grep -m1 -A4 -E "Exception|Error" /tmp/carp_dry_$TS.log | sed 's/^/    /'
+  stop "restricted dry run failed (exit $rc), log $RP/logs/carp_dry_$TS.log"
+  grep -m1 -A4 -E "Exception|Error" logs/carp_dry_$TS.log | sed 's/^/    /'
 else
+  jobs_tsv logs/carp_dry_$TS.log > /tmp/carp_jobs_$TS.tsv
+  OTHER=$(awk -F'\t' '$1 != "annotate_repeats_carp" && $1 != "publish_repeats" {print $1}' /tmp/carp_jobs_$TS.tsv | sort -u | tr '\n' ' ')
+  [ -n "$OTHER" ] && stop "rules other than CARP's would run: $OTHER"
   for sp in $SPECIES; do
-    n=$(grep -cE "wildcards: species=${sp}[[:space:]]*$" /tmp/carp_dry_$TS.log)
+    n=$(awk -F'\t' -v s="$sp" '$2 == s' /tmp/carp_jobs_$TS.tsv | wc -l)
     if [ -s "$REFS/${sp}_repeats/MANIFEST.txt" ]; then
       if [ "$n" -eq 0 ]; then echo "  OK    $sp: published, no jobs"
-      else stop "$sp is published but would rerun ($n jobs): $(grep -B12 -E "wildcards: species=${sp}[[:space:]]*$" /tmp/carp_dry_$TS.log | grep -m1 'reason:' | cut -c1-150)"; fi
+      else stop "$sp is published but would rerun: $(awk -F'\t' -v s="$sp" '$2 == s {print $1 " (" substr($3, 1, 120) ")"; exit}' /tmp/carp_jobs_$TS.tsv)"; fi
     elif [ "$n" -eq 2 ]; then echo "  OK    $sp: annotate + publish"
-    else stop "$sp: dry run plans $n jobs, expected 2 (annotate + publish)"; fi
+    else stop "$sp: restricted dry run plans $n jobs, expected 2"; fi
   done
 fi
 } 2>&1 | tee "$REP"
@@ -118,7 +149,7 @@ else
   case " $NEW " in *" Drosera_scorpioides "*)
     snakemake --help 2>/dev/null | grep -q -- "--prioritize" && PRIO="--prioritize $REFS/Drosera_scorpioides_repeats/MANIFEST.txt";;
   esac
-  setsid nohup bash -c "snakemake $NT --profile profiles/slurm --rerun-triggers mtime --keep-going --jobs 4 $PRIO; echo \"snakemake exit \$? at \$(date)\"" > "$LOG" 2>&1 < /dev/null &
+  setsid nohup bash -c "snakemake $NT --allowed-rules $CARP_RULES --profile profiles/slurm --rerun-triggers mtime --keep-going --jobs 4 $PRIO; echo \"snakemake exit \$? at \$(date)\"" > "$LOG" 2>&1 < /dev/null &
   echo; echo "LAUNCHED:$NEW"
   echo "controller log: $RP/$LOG   checks: $REP"
   sleep 90

@@ -6,8 +6,9 @@
 #   waiting  not started yet (the controller runs at most 4 at a time)
 RP=/netscratch/dep_mercier/grp_marques/Aaryan/reproducible_phd
 REFS=/netscratch/dep_mercier/grp_marques/Aaryan/refs
+ME=$(id -u)
 cd "$RP" || exit 1
-Q=$(squeue -u "$USER" -h -o '%i|%T|%M|%N|%k' 2>/dev/null)
+Q=$(squeue -u "$ME" -h -o '%i|%T|%M|%N|%k' 2>/dev/null)
 for sp in $(awk -F, 'NR>1 && $1!="" {print $1}' config/annotation.csv); do
   man="$REFS/${sp}_repeats/MANIFEST.txt"; log="logs/annotate_repeats_carp/$sp.log"
   job=$(printf '%s\n' "$Q" | grep "wildcards_${sp}$" | head -1)
@@ -18,6 +19,7 @@ for sp in $(awk -F, 'NR>1 && $1!="" {print $1}' config/annotation.csv); do
   printf '%-22s %s\n' "$sp" "$st"
 done
 L=$(ls -t logs/launch_carp_*.log 2>/dev/null | head -1)
-if pgrep -u "$USER" -f "snakemake.*_repeats/MANIFEST.txt" > /dev/null; then c="running"; else c="finished or not running"; fi
+if pgrep -u "$ME" -f "snakemake.*_repeats/MANIFEST.txt" > /dev/null; then c="running on $(hostname)"
+else c="not running on $(hostname) (check from the node you launched on)"; fi
 echo "controller: $c   log: $RP/$L"
 [ -n "$L" ] && tail -2 "$L"
