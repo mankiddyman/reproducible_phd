@@ -56,7 +56,19 @@ annotation:
 repeats:
   carp_version: "1.9.5"
   carp_sif: "/netscratch/dep_mercier/grp_marques/Aaryan/methods/carp/carp_1.9.5.sif"
-  species: [Drosera_paradoxa, Drosera_binata]
+  # every species in config/annotation.csv, in its order (was [Drosera_paradoxa, Drosera_binata])
+  species:
+    - Drosera_paradoxa
+    - Drosera_binata
+    - Drosera_scorpioides
+    - Drosera_roseana
+    - Drosera_aliciae
+    - Drosera_tokaiensis
+    - Drosera_filiformis
+    - Drosera_capensis
+    - Drosera_regia
+    - Dionaea_muscipula
+    - Nepenthes_gracilis
   repeatmasker_sensitivity: default
   # rmblastn culling for the genome-wide RepeatMasker step: CARP's recommended
   # 2 is ~3x faster at -0.7% masked bp. Left OFF (0) for the tandem-repeat

@@ -1,49 +1,23 @@
-#!/bin/bash
-# Where the CARP runs are: Slurm state, CARP's steps (finished in any attempt, and in this one),
-# last log lines, published or not, and for a running species an ETA (scripts/carp_eta.py).
-# Usage: bash scripts/carp_status.sh            (from anywhere; a few seconds)
+#!/usr/bin/env bash
+# carp_status.sh -- where every species' CARP repeat annotation stands, one line each.
+#   DONE     published (MANIFEST.txt written by rule publish_repeats)
+#   RUNNING  a Slurm job for it is queued or running
+#   STOPPED  CARP ran and exited without publishing: read the log named on the line
+#   waiting  not started yet (the controller runs at most 4 at a time)
 RP=/netscratch/dep_mercier/grp_marques/Aaryan/reproducible_phd
 REFS=/netscratch/dep_mercier/grp_marques/Aaryan/refs
-PY=/netscratch/dep_mercier/grp_marques/Aaryan/micromamba_envs/smk/bin/python
-SPECIES="Drosera_paradoxa Drosera_binata"
-echo "== Slurm jobs of $USER (rule_wildcards in the comment column)"
-q=$(squeue -u "$USER" -o "%.10i %.9P %.45k %.8T %.11M %.5C %.8m %R" 2>/dev/null)
-if echo "$q" | grep -q -E "repeats|carp"; then
-    echo "$q" | grep -E "JOBID|repeats|carp" | sed 's/^/   /'
-else
-    echo "   no job with 'repeats' in its comment; all your jobs: $(echo "$q" | tail -n +2 | wc -l)"
-fi
-comments=$(squeue -u "$USER" -h -o "%k" 2>/dev/null)
-for sp in $SPECIES; do
-    log=$RP/logs/annotate_repeats_carp/$sp.log
-    bm=$RP/results/$sp/repeats/carp/benchmarks
-    echo "== $sp"
-    if [ -s "$REFS/${sp}_repeats/MANIFEST.txt" ]; then
-        echo "   PUBLISHED: $REFS/${sp}_repeats/ ($(stat -c %y "$REFS/${sp}_repeats/MANIFEST.txt" | cut -d. -f1))"
-    fi
-    n=$(ls "$bm"/*.tsv 2>/dev/null | wc -l)
-    latest=$(ls -t "$bm"/*.tsv 2>/dev/null | head -n 3 | xargs -r -n 1 basename | sed 's/\.tsv$//' | paste -sd, -)
-    echo "   CARP steps finished in any attempt: $n${latest:+ (latest: $latest)}"
-    if [ -s "$log" ]; then
-        head -n 2 "$log" | sed 's/^/   /'
-        step=$(grep -E "of [0-9]+ steps \(" "$log" | tail -n 1)
-        echo "   this attempt: ${step:-no step finished yet}"
-        last=$(grep -E "^(rule|localrule) " "$log" | tail -n 1)
-        echo "   last step started: ${last:-?}"
-        grep -E "=== CARP exit|Error in rule|Exiting because" "$log" | tail -n 3 | sed 's/^/   /'
-        echo "   log: $log"
-    else
-        echo "   no CARP log yet"
-    fi
-    # running now: an ETA scaled from a species whose CARP run has finished and been published
-    if echo "$comments" | grep -q "wildcards_$sp" && [ -s "$log" ]; then
-        for other in $SPECIES; do
-            if [ "$other" != "$sp" ] && [ -s "$REFS/${other}_repeats/MANIFEST.txt" ]; then
-                echo "   ETA, scaled from $other's finished run:"
-                "$PY" "$RP/scripts/carp_eta.py" "$log" "$bm" "$RP/results/$other/repeats/carp/benchmarks" "${sp#Drosera_}" "${other#Drosera_}" 2>&1 \
-                    | sed 's/^   /   /'
-                break
-            fi
-        done
-    fi
+cd "$RP" || exit 1
+Q=$(squeue -u "$USER" -h -o '%i|%T|%M|%N|%k' 2>/dev/null)
+for sp in $(awk -F, 'NR>1 && $1!="" {print $1}' config/annotation.csv); do
+  man="$REFS/${sp}_repeats/MANIFEST.txt"; log="logs/annotate_repeats_carp/$sp.log"
+  job=$(printf '%s\n' "$Q" | grep "wildcards_${sp}$" | head -1)
+  if [ -s "$man" ]; then st="DONE      $(date -r "$man" '+%Y-%m-%d %H:%M')"
+  elif [ -n "$job" ]; then st="RUNNING   $job"
+  elif [ -s "$log" ] && grep -q "=== CARP exit" "$log"; then st="STOPPED   $(grep '=== CARP exit' "$log" | tail -1)  -> $RP/$log"
+  else st="waiting"; fi
+  printf '%-22s %s\n' "$sp" "$st"
 done
+L=$(ls -t logs/launch_carp_*.log 2>/dev/null | head -1)
+if pgrep -u "$USER" -f "snakemake.*_repeats/MANIFEST.txt" > /dev/null; then c="running"; else c="finished or not running"; fi
+echo "controller: $c   log: $RP/$L"
+[ -n "$L" ] && tail -2 "$L"
