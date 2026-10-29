@@ -10,10 +10,15 @@
 #   - tip markers coloured by centromere type; branch lengths as inferred (substitutions per site)
 #   - D. scorpioides is not in this tree; its genes in today's SYN4 orthogroup are listed in a note
 #
+# Two versions of the same tree:
+#   OUT.png / OUT.pdf            clean, for the report: species names only, support shown only for the SYN4 and
+#                                Droseraceae nodes and in the brackets, one footnote line
+#   OUT_full.png / OUT_full.pdf  detailed: gene IDs, short-gene lengths, support at every node, full notes
+#
 # Inputs : TREE  arabidopsis_map/kleisin_v2.treefile (IQ-TREE; the matching .log gives the support type)
 #          TIPS  syn4_check/tips_syn4_clade.tsv, written by syn4_tree_vs_og.R (v2)
 #          OGD   today's OrthoFinder Orthogroups/ directory; REPO repository root (D. scorpioides GFF)
-# Outputs: OUT.png, OUT.pdf, OUT_tips.tsv (kept tips and their paralog); tables printed to stdout
+# Outputs: the four figure files above, OUT_tips.tsv (kept tips and their paralog); tables printed to stdout
 # Usage  : Rscript syn4_tree_ab.R TREE TIPS OGD REPO OUT
 suppressPackageStartupMessages({ library(ape); library(data.table) })
 options(width = 200)
@@ -97,6 +102,7 @@ note_for <- function(p) {
 # ---------------------------------------------------------------- D. scorpioides note (not in this tree)
 cur_og <- names(sort(table(K[group %in% DROS & fragment == FALSE & !is.na(og) & og != ""]$og), decreasing = TRUE))[1]
 sc_note <- "D. scorpioides is not in this tree"
+n_sc <- NA_integer_
 ogf <- file.path(OGD, "Orthogroups.tsv")
 if (length(cur_og) && !is.na(cur_og) && file.exists(ogf)) {
   hdr <- strsplit(readLines(ogf, n = 1L), "\t", fixed = TRUE)[[1]]
@@ -106,6 +112,7 @@ if (length(cur_og) && !is.na(cur_og) && file.exists(ogf)) {
     v  <- strsplit(ln[1], "\t", fixed = TRUE)[[1]]
     v  <- c(v, rep("", max(0, length(hdr) - length(v))))
     sg <- trimws(strsplit(v[j], ",", fixed = TRUE)[[1]]); sg <- sg[nzchar(sg)]
+    n_sc <- length(sg)
     where <- character()
     gff <- file.path(REPO, "results", "Drosera_scorpioides", "annotation", "final", "Drosera_scorpioides.final.gff3")
     if (length(sg) && file.exists(gff)) {
@@ -133,17 +140,21 @@ supp <- if (is.na(cmdl)) "node support (type not found in the IQ-TREE log)" else
   if (grepl(" -alrt ", cl)) "SH-aLRT" else
   if (grepl(" -b ", cl)) "standard bootstrap" else "node support"
 
-# ---------------------------------------------------------------- labels, markers, brackets
+# ---------------------------------------------------------------- labels, markers, brackets, notes
 med_all  <- median(T[group %in% c("Dionaea", DROS) & !is.na(len)]$len)
 full_med <- median(K[group %in% c("Dionaea", DROS) & fragment == FALSE]$len, na.rm = TRUE)
 row_of <- match(pr$tip.label, K$tip)
-labs <- lapply(seq_len(nt), function(i) {
+sp_of  <- function(r) if (r$group %in% DROS) paste0("D. ", r$group) else r$group
+labs_full <- lapply(seq_len(nt), function(i) {
   r <- K[row_of[i]]
-  sp <- if (r$group %in% DROS) paste0("D. ", r$group) else r$group
   id <- sub("_(rnasupp|norna)$", "", r$gkey)
   extra <- if (isTRUE(r$fragment)) sprintf(", fragment, %s aa", r$len) else
            if (!is.na(r$len) && r$len < 0.85 * full_med) sprintf(", %s aa", r$len) else ""
-  bquote(italic(.(sp)) ~ .(paste0(id, extra)))
+  bquote(italic(.(sp_of(r))) ~ .(paste0(id, extra)))
+})
+labs_clean <- lapply(seq_len(nt), function(i) {
+  r <- K[row_of[i]]
+  if (isTRUE(r$fragment)) bquote(italic(.(sp_of(r))) ~ "(fragment)") else bquote(italic(.(sp_of(r))))
 })
 grp    <- K$group[row_of]
 isfrag <- K$fragment[row_of]
@@ -153,15 +164,17 @@ br <- list(list(node = a_node, lines = c(paste0("SYN4-a", supp_of(a_node)), note
            list(node = b_node, lines = c(paste0("SYN4-b", supp_of(b_node)), note_for("b"))))
 if (!is.na(oth_node)) br[[3]] <- list(node = oth_node, lines = paste0("SYN4, other plants", supp_of(oth_node)))
 
-notes <- c(
+notes_full <- c(
   sprintf("One tip per gene (its longest isoform): %s. Open circles: fragments (<50%% of the median Droseraceae kleisin length, %s aa).",
           drop_txt, format(round(med_all))),
   sprintf("Tree: %s (IQ-TREE, %s), pruned to the SYN4 clade, not re-inferred. Rooted on Arabidopsis SYN1; SYN1-3 not drawn (SYN4 clade support %s).",
           basename(TF), format(file.mtime(TF), "%Y-%m-%d"), if (nzchar(lab(root_node))) lab(root_node) else "n/a"),
   sc_note)
+notes_clean <- sprintf("One tip per gene. Numbers: %s. %s", supp,
+                       if (!is.na(n_sc)) sprintf("D. scorpioides (%d copies) is not in this tree yet.", n_sc)
+                       else "D. scorpioides is not in this tree yet.")
 
 # ---------------------------------------------------------------- layout, measured on the output device type
-CEX_TIP <- 0.72; CEX_BR <- 0.74; CEX_NOTE <- 0.64
 measure_in <- function(x, cex) {
   f <- tempfile(fileext = ".png")
   if (capabilities("cairo")) png(f, width = 6, height = 6, units = "in", res = 72, type = "cairo") else pdf(NULL)
@@ -169,60 +182,87 @@ measure_in <- function(x, cex) {
   plot.new()
   1.08 * max(vapply(x, function(e) strwidth(e, units = "inches", cex = cex), 0))
 }
-lab_in  <- measure_in(labs, CEX_TIP)
-br_in   <- measure_in(as.list(unlist(lapply(br, `[[`, "lines"))), CEX_BR)
-note_in <- measure_in(as.list(notes), CEX_NOTE)
-MAR <- c(0.3, 0.3, 2.6, 0.3); LINE_IN <- 0.2
-OFF_IN <- 0.13; GAP_IN <- 0.2; TICK_IN <- 0.06; TXT_IN <- 0.08; PAD_IN <- 0.1
-side_in <- OFF_IN + lab_in + GAP_IN + TXT_IN + br_in + PAD_IN
-W_IN <- max(9, side_in + 3.6 + (MAR[2] + MAR[4]) * LINE_IN, note_in + 0.4)
-plot_w  <- W_IN - (MAR[2] + MAR[4]) * LINE_IN
-tree_in <- plot_w - side_in
+LINE_IN <- 0.2; OFF_IN <- 0.13; GAP_IN <- 0.2; TICK_IN <- 0.06; TXT_IN <- 0.08; PAD_IN <- 0.1
 xmax <- max(node.depth.edgelength(pr))
-u <- xmax / tree_in
-NB <- 5
-H_IN <- max(6, 0.21 * (nt + NB) + (MAR[1] + MAR[3]) * LINE_IN + 0.3)
+layout_for <- function(full) {
+  L <- if (full) list(labs = labs_full, notes = notes_full, CEX_TIP = 0.72, CEX_BR = 0.74, CEX_NOTE = 0.64,
+                      MAR = c(0.3, 0.3, 2.6, 0.3), row_in = 0.21, min_w = 9)
+       else      list(labs = labs_clean, notes = notes_clean, CEX_TIP = 0.82, CEX_BR = 0.8, CEX_NOTE = 0.68,
+                      MAR = c(0.3, 0.3, 1.6, 0.3), row_in = 0.2, min_w = 7)
+  L$full <- full
+  L$lab_in <- measure_in(L$labs, L$CEX_TIP)
+  br_in    <- measure_in(as.list(unlist(lapply(br, `[[`, "lines"))), L$CEX_BR)
+  note_in  <- measure_in(as.list(L$notes), L$CEX_NOTE)
+  side_in  <- OFF_IN + L$lab_in + GAP_IN + TXT_IN + br_in + PAD_IN
+  L$W_IN   <- max(L$min_w, side_in + 3.4 + (L$MAR[2] + L$MAR[4]) * LINE_IN, note_in + 0.4)
+  L$plot_w <- L$W_IN - (L$MAR[2] + L$MAR[4]) * LINE_IN
+  L$u      <- xmax / (L$plot_w - side_in)
+  L$note_y <- -1.35 - 0.75 * (seq_along(L$notes) - 1)
+  L$bar_y  <- min(L$note_y) - 0.85
+  L$NB     <- ceiling(1 - L$bar_y + 0.6)
+  L$H_IN   <- max(5.5, L$row_in * (nt + L$NB) + (L$MAR[1] + L$MAR[3]) * LINE_IN + 0.3)
+  L
+}
 key <- unique(c(root_node, dr_node, a_node, b_node, if (!is.na(oth_node)) oth_node))
+inn <- (nt + 1L):(nt + pr$Nnode)
+sl  <- if (is.null(pr$node.label)) rep("", pr$Nnode) else pr$node.label
 
-draw <- function() {
-  par(mar = MAR, xpd = NA)
-  plot.phylo(pr, show.tip.label = FALSE, x.lim = c(0, plot_w * u), y.lim = c(1 - NB, nt + 0.5),
+draw <- function(L) {
+  par(mar = L$MAR, xpd = NA)
+  plot.phylo(pr, show.tip.label = FALSE, x.lim = c(0, L$plot_w * L$u), y.lim = c(1 - L$NB, nt + 0.5),
              edge.width = 1.1, edge.color = "grey25")
   pp <- get("last_plot.phylo", envir = .PlotPhyloEnv)
-  xx <- pp$xx; yy <- pp$yy
-  inn <- (nt + 1L):(nt + pr$Nnode)
-  sl <- if (is.null(pr$node.label)) rep("", pr$Nnode) else pr$node.label
-  small <- inn[nzchar(sl) & !(inn %in% key)]
-  if (length(small)) text(xx[small], yy[small], sl[small - nt], adj = c(1.15, -0.45), cex = 0.48, col = "grey50")
-  kk <- key[nzchar(sl[key - nt])]
-  if (length(kk)) text(xx[kk], yy[kk], sl[kk - nt], adj = c(1.15, -0.45), cex = 0.64, font = 2, col = "grey10")
+  xx <- pp$xx; yy <- pp$yy; u <- L$u
+  if (L$full) {
+    small <- inn[nzchar(sl) & !(inn %in% key)]
+    if (length(small)) text(xx[small], yy[small], sl[small - nt], adj = c(1.15, -0.45), cex = 0.48, col = "grey50")
+  }
+  shown <- if (L$full) key else c(root_node, dr_node)          # clean: a, b and other plants carry theirs in the brackets
+  kk <- shown[nzchar(sl[shown - nt])]
+  if (length(kk)) text(xx[kk], yy[kk], sl[kk - nt], adj = c(1.15, -0.45), cex = if (L$full) 0.64 else 0.72, font = 2, col = "grey10")
   points(xx[1:nt] + 0.05 * u, yy[1:nt], pch = ifelse(isfrag, 1, 21), bg = mcol,
          col = ifelse(isfrag, mcol, "grey20"), cex = 1.05, lwd = ifelse(isfrag, 1.6, 0.7))
-  for (i in seq_len(nt)) text(xx[i] + OFF_IN * u, yy[i], labs[[i]], adj = c(0, 0.5), cex = CEX_TIP, col = "grey10")
-  xb <- max(xx[1:nt]) + (OFF_IN + lab_in + GAP_IN) * u
+  for (i in seq_len(nt)) text(xx[i] + OFF_IN * u, yy[i], L$labs[[i]], adj = c(0, 0.5), cex = L$CEX_TIP, col = "grey10")
+  xb <- max(xx[1:nt]) + (OFF_IN + L$lab_in + GAP_IN) * u
   for (b in br) {
     y <- range(yy[match(tips_of(b$node), pr$tip.label)]) + c(-0.3, 0.3)
     segments(xb, y[1], xb, y[2], lwd = 1.3, col = "grey20")
     segments(xb - TICK_IN * u, y, xb, y, lwd = 1.3, col = "grey20")
     n <- length(b$lines)
     text(xb + TXT_IN * u, mean(y) + (seq_len(n) - (n + 1) / 2) * -0.85, b$lines, adj = c(0, 0.5),
-         cex = CEX_BR, font = c(2, rep(1, n - 1)), col = "grey10")
+         cex = L$CEX_BR, font = c(2, rep(1, n - 1)), col = "grey10")
   }
-  legend(x = 0, y = 0.2, legend = c("holocentric", "monocentric", "other plants", "full-length gene", "fragment"),
-         pch = c(21, 21, 21, 21, 1), pt.bg = c(COL[["holo"]], COL[["mono"]], COL[["other"]], "grey85", NA),
-         col = "grey20", pt.cex = 1.05, cex = 0.72, horiz = TRUE, bty = "n", xjust = 0, yjust = 1, text.col = "grey10")
-  text(0, c(-1.35, -2.1, -2.85), notes, adj = c(0, 0.5), cex = CEX_NOTE, col = "grey25")
-  add.scale.bar(x = 0, y = -3.75, cex = 0.62, col = "grey25")
-  mtext("SYN4 gene tree: one tip per gene, Droseraceae paralogs a and b", side = 3, line = 1.2, adj = 0, cex = 0.95, font = 2)
-  mtext(sprintf("Tip markers coloured by centromere type. Numbers at nodes: %s. Scale bar: substitutions per site.", supp),
-        side = 3, line = 0.2, adj = 0, cex = 0.7, col = "grey30")
+  if (L$full) {
+    legend(x = 0, y = 0.2, legend = c("holocentric", "monocentric", "other plants", "full-length gene", "fragment"),
+           pch = c(21, 21, 21, 21, 1), pt.bg = c(COL[["holo"]], COL[["mono"]], COL[["other"]], "grey85", NA),
+           col = "grey20", pt.cex = 1.05, cex = 0.72, horiz = TRUE, bty = "n", xjust = 0, yjust = 1, text.col = "grey10")
+  } else {
+    legend(x = 0, y = 0.2, legend = c("holocentric", "monocentric", "other plants", "fragment"),
+           pch = c(21, 21, 21, 1), pt.bg = c(COL[["holo"]], COL[["mono"]], COL[["other"]], NA),
+           col = "grey20", pt.cex = 1.05, cex = 0.76, horiz = TRUE, bty = "n", xjust = 0, yjust = 1, text.col = "grey10")
+  }
+  text(0, L$note_y, L$notes, adj = c(0, 0.5), cex = L$CEX_NOTE, col = "grey25")
+  add.scale.bar(x = 0, y = L$bar_y, cex = 0.62, col = "grey25")
+  if (L$full) {
+    mtext("SYN4 gene tree: one tip per gene, Droseraceae paralogs a and b", side = 3, line = 1.2, adj = 0, cex = 0.95, font = 2)
+    mtext(sprintf("Tip markers coloured by centromere type. Numbers at nodes: %s. Scale bar: substitutions per site.", supp),
+          side = 3, line = 0.2, adj = 0, cex = 0.7, col = "grey30")
+  } else {
+    mtext("SYN4 gene tree: Droseraceae paralogs a and b", side = 3, line = 0.35, adj = 0, cex = 1, font = 2)
+  }
 }
 
-f_png <- paste0(OUTP, ".png"); f_pdf <- paste0(OUTP, ".pdf")
-if (capabilities("cairo")) png(f_png, width = W_IN, height = H_IN, units = "in", res = 220, type = "cairo") else
-  png(f_png, width = W_IN, height = H_IN, units = "in", res = 220)
-draw(); invisible(dev.off())
-pdf(f_pdf, width = W_IN, height = H_IN); draw(); invisible(dev.off())
+out_files <- character()
+for (full in c(FALSE, TRUE)) {
+  L <- layout_for(full)
+  stem <- if (full) paste0(OUTP, "_full") else OUTP
+  f_png <- paste0(stem, ".png"); f_pdf <- paste0(stem, ".pdf")
+  if (capabilities("cairo")) png(f_png, width = L$W_IN, height = L$H_IN, units = "in", res = 220, type = "cairo") else
+    png(f_png, width = L$W_IN, height = L$H_IN, units = "in", res = 220)
+  draw(L); invisible(dev.off())
+  pdf(f_pdf, width = L$W_IN, height = L$H_IN); draw(L); invisible(dev.off())
+  out_files <- c(out_files, f_png, f_pdf)
+}
 fwrite(K[, .(tip, species = group, gene = gkey, len, fragment, paralog, og)], paste0(OUTP, "_tips.tsv"), sep = "\t")
 
 # ---------------------------------------------------------------- what was drawn, for checking against the figure
@@ -244,4 +284,4 @@ cnt[, centromere := fifelse(group %in% HOLO, "holo", "mono")]
 print(cnt[order(match(group, spp))], row.names = FALSE)
 cat("\n   a:", paste(note_for("a"), collapse = "; "), "\n   b:", paste(note_for("b"), collapse = "; "), "\n  ", sc_note, "\n")
 hr("files")
-cat(sprintf("   %s\n   %s\n   %s_tips.tsv\n", f_png, f_pdf, OUTP))
+cat(sprintf("   %s\n", c(out_files, paste0(OUTP, "_tips.tsv"))), sep = "")
