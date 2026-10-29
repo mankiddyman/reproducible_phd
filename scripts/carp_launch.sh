@@ -14,12 +14,14 @@
 #   3   each job's Slurm time limit is >= 1.5x its predicted runtime (D. paradoxa's rate, plus the extra
 #       DANTE time the species' worker cap costs)
 #   4   BAM/BAI/tabix in what CARP made for paradoxa (scorpioides has 2 chromosomes > 2^29 bp) -- informational
-#   5   dry run restricted to the two CARP rules: published species get no jobs, every other species
-#       exactly 2 (annotate + publish), and no other rule. The unrestricted dry run is reported alongside:
-#       an edit to config/species.csv makes Snakemake want to rebuild every frozen assembly, and
-#       --allowed-rules keeps CARP on the frozen FASTAs as they are
-# Species whose CARP job is already in Slurm are not submitted again: the controller waits for those
-# jobs to end, then runs the same two rules for them (publish if annotated, otherwise annotate again).
+#   5   dry run restricted to the two CARP rules, over every species without a CARP job in Slurm:
+#       published species get no jobs, every other species exactly 2 (annotate + publish), and no other
+#       rule. The unrestricted dry run is reported alongside: an edit to config/species.csv makes
+#       Snakemake want to rebuild every frozen assembly; --allowed-rules keeps CARP on the frozen FASTAs.
+# Species whose CARP job is already in Slurm are left out of the checks and not submitted again: the
+# controller waits for those jobs to end, then runs the same two rules for them (publish if annotated,
+# otherwise annotate again). Every run uses --rerun-incomplete, because a controller killed mid-run
+# leaves its jobs' outputs marked incomplete.
 # One detached controller (setsid nohup), at most 4 species at a time, scorpioides first.
 # Report: logs/carp_gate_<time>.txt. Status at any time: scripts/carp_status.sh
 RP=/netscratch/dep_mercier/grp_marques/Aaryan/reproducible_phd
@@ -52,10 +54,11 @@ for sp in $SPECIES; do
   id=$(echo "$Q" | awk -v s="$sp" '$2 ~ ("wildcards_" s "$") {print $1; exit}')
   [ -n "$id" ] && { RUN_SP="$RUN_SP $sp"; RUN_IDS="$RUN_IDS $id"; }
 done
+CHK=""; for sp in $SPECIES; do case " $RUN_SP " in *" $sp "*) ;; *) CHK="$CHK $sp";; esac; done
 
 {
 echo "CARP on every species: checks first, submit only if all pass   ($(date '+%F %T'), $(hostname))"
-[ -n "$RUN_SP" ] && echo "  already in Slurm, followed up when their jobs end:$RUN_SP (job$RUN_IDS)"
+[ -n "$RUN_SP" ] && echo "  already in Slurm, left out of the checks and followed up when their jobs end:$RUN_SP (job$RUN_IDS)"
 
 echo; echo "=== 0. this host can run the controller"
 if getent passwd "$ME" > /dev/null; then echo "  OK    $(hostname) resolves uid $ME"
@@ -151,26 +154,27 @@ if [ -z "$STEPS" ]; then echo "  note  no step list in the paradoxa log, so unve
 elif [ -z "$IDX$ISTEP" ]; then echo "  OK    none of CARP's $(echo $STEPS | wc -w) steps or files is a BAM/BAI/tabix index"
 else echo "  note  CARP makes indexes ($ISTEP$IDX); a failure there is a side step, which the rule tolerates"; fi
 
-ALL=$(for sp in $SPECIES; do printf '%s ' "$REFS/${sp}_repeats/MANIFEST.txt"; done)
+ALL=$(for sp in $CHK; do printf '%s ' "$REFS/${sp}_repeats/MANIFEST.txt"; done)
 echo; echo "=== 5a. what an unrestricted run would also redo (reported only)"
-snakemake $ALL -n --nolock --rerun-triggers mtime --profile profiles/slurm > logs/carp_dry_full_$TS.log 2>&1
+snakemake $ALL -n --nolock --rerun-triggers mtime --rerun-incomplete --profile profiles/slurm > logs/carp_dry_full_$TS.log 2>&1
 jobs_tsv logs/carp_dry_full_$TS.log > /tmp/carp_jobs_full_$TS.tsv
 echo "  $(wc -l < /tmp/carp_jobs_full_$TS.tsv) jobs, of which outside the CARP rules: $(awk -F'\t' '$1 != "annotate_repeats_carp" && $1 != "publish_repeats"' /tmp/carp_jobs_full_$TS.tsv | wc -l)"
 awk -F'\t' '$1 != "annotate_repeats_carp" && $1 != "publish_repeats" && $3 !~ /^Input files updated by another job/ {print $1 ": " substr($3, 1, 150)}' \
   /tmp/carp_jobs_full_$TS.tsv | sort | uniq -c | sort -rn | head -6 | sed 's/^/   root cause: /'
 
 echo; echo "=== 5b. dry run restricted to the CARP rules (the check)"
-snakemake $ALL --allowed-rules $CARP_RULES -n --nolock --rerun-triggers mtime --profile profiles/slurm > logs/carp_dry_$TS.log 2>&1
+snakemake $ALL --allowed-rules $CARP_RULES -n --nolock --rerun-triggers mtime --rerun-incomplete --profile profiles/slurm > logs/carp_dry_$TS.log 2>&1
 rc=$?
 awk '/^Job stats:/{f=1} f{print} f && /^total/{exit}' logs/carp_dry_$TS.log | sed 's/^/  /'
 if [ $rc -ne 0 ]; then
   stop "restricted dry run failed (exit $rc), log $RP/logs/carp_dry_$TS.log"
   grep -m1 -A4 -E "Exception|Error" logs/carp_dry_$TS.log | sed 's/^/    /'
+  awk '/^Incomplete files:/{f=1; next} f && NF {print "    incomplete: " $0} f && !NF {exit}' logs/carp_dry_$TS.log
 else
   jobs_tsv logs/carp_dry_$TS.log > /tmp/carp_jobs_$TS.tsv
   OTHER=$(awk -F'\t' '$1 != "annotate_repeats_carp" && $1 != "publish_repeats" {print $1}' /tmp/carp_jobs_$TS.tsv | sort -u | tr '\n' ' ')
   [ -n "$OTHER" ] && stop "rules other than CARP's would run: $OTHER"
-  for sp in $SPECIES; do
+  for sp in $CHK; do
     n=$(awk -F'\t' -v s="$sp" '$2 == s' /tmp/carp_jobs_$TS.tsv | wc -l)
     ex=$(awk -F'\t' -v s="$sp" '$1 == "annotate_repeats_carp" && $2 == s {print $4; exit}' /tmp/carp_jobs_$TS.tsv)
     if [ -s "$REFS/${sp}_repeats/MANIFEST.txt" ]; then
@@ -179,15 +183,12 @@ else
     elif [ "$n" -eq 2 ]; then echo "  OK    $sp: annotate + publish, excluding ${ex:-nothing}"
     else stop "$sp: restricted dry run plans $n jobs, expected 2"; fi
   done
+  for sp in $RUN_SP; do echo "  --    $sp: its CARP job is running; checked by the follow-up once it ends"; done
 fi
 } 2>&1 | tee "$REP"
 
 NEW=""
-for sp in $SPECIES; do
-  [ -s "$REFS/${sp}_repeats/MANIFEST.txt" ] && continue
-  case " $RUN_SP " in *" $sp "*) continue;; esac
-  NEW="$NEW $sp"
-done
+for sp in $CHK; do [ -s "$REFS/${sp}_repeats/MANIFEST.txt" ] || NEW="$NEW $sp"; done
 if [ -s "$STOPF" ]; then
   echo; echo "NOT LAUNCHED: $(wc -l < "$STOPF") check(s) failed:"; sed 's/^/  - /' "$STOPF"
   echo "Paste back $REP"
@@ -209,13 +210,13 @@ else
 export PATH=$ENV/bin:\$PATH
 cd $RP || exit 1
 if [ -n "$NT" ]; then
-  snakemake $NT --allowed-rules $CARP_RULES --profile profiles/slurm --rerun-triggers mtime --keep-going --jobs 4 $PRIO
+  snakemake $NT --allowed-rules $CARP_RULES --profile profiles/slurm --rerun-triggers mtime --rerun-incomplete --keep-going --jobs 4 $PRIO
   echo "snakemake exit \$? at \$(date)"
 fi
 if [ -n "$RT" ]; then
   echo "waiting for the CARP jobs that were already running ($IDS)"
   while squeue -h -j "$IDS" 2> /dev/null | grep -q .; do sleep 600; done
-  snakemake $RT --allowed-rules $CARP_RULES --profile profiles/slurm --rerun-triggers mtime --keep-going --jobs 4
+  snakemake $RT --allowed-rules $CARP_RULES --profile profiles/slurm --rerun-triggers mtime --rerun-incomplete --keep-going --jobs 4
   echo "follow-up snakemake exit \$? at \$(date)"
 fi
 WEOF
