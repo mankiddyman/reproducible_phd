@@ -9,8 +9,9 @@
 #   red fs  exon carrying a frameshift (miniprot Frameshift)
 #   text    the call: complete / which protein stretch is not found / stop / frameshift, identity to D. regia
 #   columns when the RNA summary of tpxl6_rna_kmer.sh is given: leaf-RNA reads that span a splice junction of
-#           TPXL6 (spliced mRNA, all copies of the species together) and of its TPXL1/5-group relative in the
-#           same genome (the library control)
+#           TPXL6 (spliced mRNA) and of its TPXL1/5-group relative in the same genome (the library control).
+#           tpxl6_rna_kmer.sh searches the k-mers of every TPXL6 copy of a species together, so there is one
+#           count per species: it is drawn once, beside a bracket spanning all of that species' copies.
 # The page is made as wide as its longest text, so nothing is cut off at the right edge.
 # Centromere type: config/species.csv, with D. regia (holocentric) and D. capensis (monocentric) added because
 # they are imported genomes that species.csv does not list.
@@ -121,10 +122,11 @@ draw <- function() {
   mtext("kb from the first coding base", side = 1, line = 2.3, at = xmax / 2, cex = 0.7, col = "grey30")
   x_name <- (-NAME_IN + 0.08) * u; x_hap <- -0.5 * u; x_right <- (W_IN - NAME_IN - 0.25) * u
   if (HAS_RNA) {
-    text(X_C1 * u, 0.3, "TPXL6", adj = c(1, 0.5), cex = 0.68, font = 2, col = "grey20")
+    text(X_C1 * u, 0.3, "TPXL6, all copies", adj = c(1, 0.5), cex = 0.68, font = 2, col = "grey20")
     text(X_C2 * u, 0.3, "related gene", adj = c(1, 0.5), cex = 0.68, font = 2, col = "grey20")
     text(X_C2 * u, -0.15, "leaf RNA, spliced reads", adj = c(1, 0.5), cex = 0.68, col = "grey30")
   }
+  sps <- sapply(rows, `[[`, "sp")
   last <- ""
   for (k in seq_len(n)) {
     r <- rows[[k]]; col <- colof(r$sp)
@@ -133,10 +135,16 @@ draw <- function() {
       text(x_name, k, nice(r$sp), adj = 0, font = 3, cex = 0.8, col = col)
       last <- r$sp
     }
-    if (!is.null(r$rna)) {
-      text(X_C1 * u, k, r$rna$t6, adj = c(1, 0.5), cex = if (r$rna$none) 0.68 else 0.78,
+    if (!is.null(r$rna)) {                               # one count per species, centred on its copies
+      ks <- which(sps == r$sp); yc <- mean(range(ks))
+      if (length(ks) > 1) {
+        xb <- (X_C1 - 0.55) * u; yb <- c(min(ks) - 0.3, max(ks) + 0.3)
+        segments(xb, yb[1], xb, yb[2], col = "grey60", lwd = 0.9)
+        segments(xb, yb, xb - 0.07 * u, yb, col = "grey60", lwd = 0.9)
+      }
+      text(X_C1 * u, yc, r$rna$t6, adj = c(1, 0.5), cex = if (r$rna$none) 0.68 else 0.78,
            font = if (r$rna$none) 3 else 2, col = if (r$rna$none) "grey55" else col)
-      text(X_C2 * u, k, r$rna$ct, adj = c(1, 0.5), cex = 0.72, col = "grey35")
+      text(X_C2 * u, yc, r$rna$ct, adj = c(1, 0.5), cex = 0.72, col = "grey35")
     }
     if (r$none) { text(0, k, r$txt, adj = 0, cex = CEX, col = "grey35"); next }
     text(x_hap, k, r$hap, adj = 0, cex = 0.7, col = "grey40")
@@ -165,5 +173,5 @@ pdf(paste0(OUTP, ".pdf"), W_IN, H_IN); draw(); invisible(dev.off())
 cat(sprintf("rows drawn: %d   page %.1f x %.1f in\n", length(rows), W_IN, H_IN))
 for (r in rows) cat(sprintf("  %-20s %-6s %-62s %s\n", r$sp, if (r$none) "" else r$hap, r$txt,
                             if (is.null(r$rna)) "" else if (r$rna$none) "no leaf RNA" else
-                              paste0("leaf RNA, spliced reads: TPXL6 ", r$rna$t6, ", related gene ", r$rna$ct)))
+                              paste0("leaf RNA, spliced reads, all copies: TPXL6 ", r$rna$t6, ", related gene ", r$rna$ct)))
 cat(sprintf("wrote %s.png / .pdf\n", OUTP))
