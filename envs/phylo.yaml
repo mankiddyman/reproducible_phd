@@ -1,5 +1,5 @@
-# envs/phylo.yaml -- gene-family phylogenetics and protein-to-genome alignment
-# (tpx2_tree_v2.sh, tpxl6_miniprot.sh). Versions pinned to what bioconda resolved on 2026-10-30.
+# envs/phylo.yaml -- gene-family phylogenetics, protein-to-genome alignment and read counting
+# (tpx2_tree_v2.sh, tpxl6_miniprot.sh, tpxl6_rna_check.R). Versions pinned to what bioconda resolved on 2026-10-30.
 name: phylo
 channels:
   - conda-forge
@@ -11,3 +11,4 @@ dependencies:
   - iqtree=3.1.4
   - miniprot=0.18
   - seqkit=2.14.0
+  - samtools=1.25
