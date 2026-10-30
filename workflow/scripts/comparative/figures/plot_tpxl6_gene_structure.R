@@ -8,10 +8,11 @@
 #   red x   exon carrying an in-frame stop codon (miniprot StopCodon)
 #   red fs  exon carrying a frameshift (miniprot Frameshift)
 #   right   the call: complete / which protein stretch is not found / stop / frameshift, identity to D. regia,
-#           and, when tpxl6_rna_check.tsv is given, leaf-RNA reads and splice junctions for that copy
+#           and, when the RNA summary of tpxl6_rna_kmer.sh is given, the species' leaf-RNA reads that span a TPXL6
+#           splice junction (spliced mRNA, all copies together) next to those of its TPXL1/5-group relative
 # Centromere type: config/species.csv, with D. regia (holocentric) and D. capensis (monocentric) added because
 # they are imported genomes that species.csv does not list.
-# usage: Rscript plot_tpxl6_gene_structure.R MINIPROT_DIR SPECIES_CSV OUT_PREFIX [RNA_TSV]
+# usage: Rscript plot_tpxl6_gene_structure.R MINIPROT_DIR SPECIES_CSV OUT_PREFIX [RNA_KMER_SUMMARY_TSV]
 suppressPackageStartupMessages(library(data.table)); options(width = 200)
 a <- commandArgs(TRUE)
 if (length(a) < 3) stop("usage: plot_tpxl6_gene_structure.R MINIPROT_DIR SPECIES_CSV OUT_PREFIX [RNA_TSV]")
@@ -75,8 +76,12 @@ for (sp in sp_all) {
     miss_txt <- if (length(miss)) { b <- cumsum(c(1, diff(miss) != 1)); paste(tapply(miss, b, function(v) if (length(v) > 1) paste0(min(v), "-", max(v)) else v), collapse = ", ") } else ""
     call <- if (r$stop > 0) "premature stop codon" else if (r$frameshift > 0) "frameshift" else
             if (length(miss)) sprintf("aa %s of %d not found", miss_txt, ql) else "complete, no frameshift or stop"
-    rr <- if (!is.null(rna)) rna[species == sp & class == "TPXL6" & contig == r$contig & start == r$start] else NULL
-    rtxt <- if (!is.null(rr) && nrow(rr)) sprintf("   leaf RNA: %d reads, %d/%d junctions", rr$reads[1], rr$introns_with_junction[1], rr$introns[1]) else ""
+    rtxt <- ""
+    if (!is.null(rna) && i == 1 && nrow(rna[species == sp & set == "TPXL6"])) {
+      t6 <- rna[species == sp & set == "TPXL6"][1]; ct <- rna[species == sp & set == "control"]
+      rtxt <- sprintf("   | leaf RNA: %d spliced TPXL6 reads (%.2f per million)%s", t6$junction_reads, t6$junction_per_million,
+                      if (nrow(ct)) sprintf(", related gene %d", ct$junction_reads[1]) else "")
+    }
     rows[[length(rows) + 1]] <- list(sp = sp, none = FALSE, hap = hap(r$contig), contig = r$contig, span = r$span_kb, ex = ex,
       txt = if (sp == "Drosera_regia" && r$identity >= 0.999) sprintf("%s; the query itself%s", call, rtxt)
             else sprintf("%s; %.0f%% identical to D. regia%s", call, 100 * r$identity, rtxt), bad = r$stop > 0 || r$frameshift > 0)
