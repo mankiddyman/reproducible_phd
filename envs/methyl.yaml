@@ -1,0 +1,11 @@
+# envs/methyl.yaml -- CpG methylation from PacBio HiFi 5mC tags (MM/ML): read alignment (minimap2 -y keeps the tags)
+# and per-CpG pileup (pb-CpG-tools). Versions pinned to what bioconda resolved on 2026-11-02.
+name: methyl
+channels:
+  - conda-forge
+  - bioconda
+  - nodefaults
+dependencies:
+  - samtools=1.25
+  - minimap2=2.31
+  - pb-cpg-tools=3.0.0
