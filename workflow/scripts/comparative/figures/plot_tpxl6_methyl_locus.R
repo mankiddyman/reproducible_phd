@@ -13,6 +13,7 @@
 #   below  coding exons (black) on the locus line
 # Columns: mean CpG methylation in the 2 kb upstream, in coding exons, in intron sequence outside TEs, in TEs; median
 # reads per CpG; the species' leaf-RNA spliced reads (tpxl6_rna_kmer.sh). Also writes methyl_summary.tsv.
+# FIG_BANNER (environment variable): when set, printed in red at the top right, e.g. to mark a run on test data.
 # usage: Rscript plot_tpxl6_methyl_locus.R MINIPROT_DIR METHYL_DIR SPECIES_CSV OUT_PREFIX [RNA_KMER_SUMMARY_TSV]
 suppressPackageStartupMessages(library(data.table)); options(width = 220)
 a <- commandArgs(TRUE)
@@ -182,6 +183,7 @@ draw <- function() {
   }
   xl <- X0 - (NAME_IN - 0.18) * u
   mtext("CpG methylation over TPXL6 (PacBio HiFi 5mC)", side = 3, line = 4.75 + NL, at = xl, adj = 0, cex = 1.05, font = 2, col = INK)
+  if (nzchar(Sys.getenv("FIG_BANNER"))) mtext(Sys.getenv("FIG_BANNER"), side = 3, line = 4.75 + NL, at = xc[6], adj = 1, cex = 1.0, font = 2, col = "#b2182b")
   mtext(sprintf("Each dot is one CpG (%% of reads methylated, >= 3 reads); line = mean within +-%d bp. Shaded: CARP repeats; grey band: the 2 kb upstream window. Black: coding exons.", SMOOTH),
         side = 3, line = 3.65 + NL, at = xl, adj = 0, cex = 0.68, col = INK2)
   mtext("x = 0 is the first coding base found (exon 2 for a copy whose first exon was not found). Upstream % excludes CpGs inside TEs; BAMs whose TEs are unmethylated are left out.",
