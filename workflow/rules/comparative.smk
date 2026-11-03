@@ -35,7 +35,15 @@ rule orthofinder_prep:
 rule orthofinder:
     """OrthoFinder v3 all-vs-all orthology across all species (primary
     transcripts). Comprehensive (no orthogroup filtering — filter downstream).
-    Fresh conda env. Thread/mem guardrailed against the all-vs-all OOM."""
+    Fresh conda env. Thread/mem guardrailed against the all-vs-all OOM.
+
+    Whole node since the 19-species run (2026-11: 11 Droseraceae/Nepenthes +
+    holocentric/monocentric pairs from 4 other clades): the all-vs-all grows
+    with the square of the species count (19^2/11^2 = 3.0x). -t runs DIAMOND,
+    FAMSA and tree programs as separate processes started by threads, so 120
+    of them do not copy OrthoFinder's own memory; -a stays at 8 because each
+    analysis worker holds orthogroup data. Slurm values are in
+    profiles/slurm/config.yaml (set-resources: orthofinder)."""
     input:
         prepdir="results/comparative/orthofinder/input",
     output:
@@ -45,10 +53,10 @@ rule orthofinder:
         name="drosera",
     conda:
         "../envs/orthofinder.yaml"
-    threads: 48
+    threads: 120
     resources:
-        mem_mb=350000,
-        runtime=2880,
+        mem_mb=900000,
+        runtime=5760,
     log:
         "logs/orthofinder/run.log",
     shell:

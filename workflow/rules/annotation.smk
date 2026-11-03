@@ -23,8 +23,14 @@ external_genomes_df = pd.read_csv(config["external_genomes_table"]).fillna("").s
 
 def keep_n_scaffolds(species: str) -> int:
     """Number of chromosome-scale scaffolds to retain from a collapsed external
-    genome = chr_number // ploidy (collapsed → one scaffold per chromosome)."""
+    genome = chr_number // ploidy (collapsed → one scaffold per chromosome),
+    unless the optional keep_n column of external_genomes.csv is set: an
+    assembly whose chromosomes are split over several Hi-C scaffolds keeps all
+    of them (Chamaelirium luteum: 12 chromosomes, 22 scaffolds > 10 Mb)."""
     row = external_genomes_df.loc[species]
+    override = str(row.get("keep_n", "")).strip()
+    if override:
+        return int(float(override))
     return int(row["chr_number"]) // int(row["ploidy"])
 
 
@@ -45,12 +51,27 @@ def frozen_chr_fasta(species: str) -> str:
     return f"results/{species}/assembly_final/{stage}/{species}_chr.fa"
 
 
-# Pick least-used GPU (by used memory) and export CUDA_VISIBLE_DEVICES.
+# Pick a GPU and export CUDA_VISIBLE_DEVICES: the least-used one (by memory)
+# that no other job of this workflow holds. Each GPU job takes a per-GPU lock
+# (flock on fd 9, released when the job's shell exits). Before this, two jobs
+# starting at the same moment both read 0 MiB on every GPU and both took GPU 0.
+# --resources gpu=N keeps the number of GPU jobs at or below the number of GPUs,
+# so the wait below only covers a job starting while another is still exiting.
 PICK_GPU = r'''
-        GPU_ID=$(nvidia-smi --query-gpu=index,memory.used --format=csv,noheader,nounits \
-                 | sort -t, -k2 -n | head -1 | cut -d, -f1 | tr -d ' ')
+        nvidia-smi -L > /dev/null 2>&1 || { echo "no GPU visible on $(hostname)" >> "$LOG"; exit 1; }
+        GPU_ID=""
+        while [ -z "$GPU_ID" ]; do
+            for g in $(nvidia-smi --query-gpu=index,memory.used --format=csv,noheader,nounits \
+                       | sort -t, -k2 -n | cut -d, -f1 | tr -d ' '); do
+                exec 9> "/tmp/${USER:-$(id -un)}_reproducible_phd_gpu$g.lock"
+                if flock -n 9; then GPU_ID=$g; break; fi
+                exec 9>&-
+            done
+            [ -n "$GPU_ID" ] || sleep 60
+        done
         export CUDA_VISIBLE_DEVICES="$GPU_ID"
-        echo "Using GPU $GPU_ID" >> "$LOG"
+        echo "Using GPU $GPU_ID on $(hostname)" >> "$LOG"
+        nvidia-smi --query-gpu=index,name,memory.used,memory.total --format=csv,noheader >> "$LOG" 2>&1 || true
 '''
 
 
@@ -613,9 +634,25 @@ OMAMER_DB = {
 DROSERA_TAXID = 4363
 OMARK_TEST_ENV = "/netscratch/dep_mercier/grp_marques/Aaryan/micromamba_envs/omark_test"
 
+
+def omark_taxid(species: str) -> int:
+    """NCBI taxid given to OMArk (-t), which picks the reference lineage from it.
+    Drosera (4363) unless config/external_genomes.csv sets omark_taxid. With a
+    lineage far from the species, OMArk calls much of the proteome Inconsistent
+    or Contamination, and omark_classify_genes drops those genes (e.g. every
+    monocot-specific gene of a monocot). Blank for capensis, regia, Dionaea and
+    Nepenthes, so they keep the 4363 they were run with."""
+    if species in external_genomes_df.index and "omark_taxid" in external_genomes_df.columns:
+        v = str(external_genomes_df.loc[species, "omark_taxid"]).strip()
+        if v:
+            return int(float(v))
+    return DROSERA_TAXID
+
+
 rule qc_omark:
     """OMArk completeness/consistency for one proteome vs one OMAmer DB.
-    omamer search (multithreaded) -> omark (single-threaded, -t Drosera 4363).
+    omamer search (multithreaded) -> omark (single-threaded, -t omark_taxid(),
+    i.e. Drosera 4363 unless external_genomes.csv sets the species' own taxid).
     db: viridiplantae = sharp plant scoring (bake-off); luca = tree-of-life
     context for taxon attribution of unknowns (the 2-DB merge)."""
     input:
@@ -627,7 +664,7 @@ rule qc_omark:
         done="results/{species}/annotation/{tool}/omark/{db}/{species}.{tool}.{db}.done",
     params:
         db=lambda wc: OMAMER_DB[wc.db],
-        taxid=DROSERA_TAXID,
+        taxid=lambda wc: omark_taxid(wc.species),
         outdir="results/{species}/annotation/{tool}/omark/{db}",
         prefix="{species}.{tool}.{db}",
         env=OMARK_TEST_ENV,

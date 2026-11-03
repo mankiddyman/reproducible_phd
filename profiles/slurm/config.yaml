@@ -28,10 +28,12 @@ default-resources:
   tmpdir: "/netscratch/dep_mercier/grp_marques/Aaryan/reproducible_phd/snakemake_tmp"
 
 set-resources:
+  # Whole node since the 19-species run (2026-11). Same node exclusions as CARP's 900 GB jobs (config.yaml,
+  # repeats.resources): hpc07 could not look up the user, hpc04/08/09 had too little memory left to commit.
   orthofinder:
-    cpus_per_task: 48
-    mem_mb: 400000
-    slurm_extra: "'--time=2-00:00:00 --exclude=hpc15'"
+    cpus_per_task: 120
+    mem_mb: 900000
+    slurm_extra: "'--time=4-00:00:00 --exclude=hpc04,hpc07,hpc08,hpc09,hpc15'"
   run_hifiasm:
     cpus_per_task: 32
     slurm_partition: normal
