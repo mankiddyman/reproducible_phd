@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # launch_expansion_orthofinder.sh -- stage B of the 2026-11 expansion of the holocentricity screen: once stage A1 on
 # gpu01 has written all eight final proteomes (logs/expansion/A1.ok, see launch_expansion_gpu01.sh), move the
-# 11-species OrthoFinder run aside and run OrthoFinder on all 19 species of config/annotation.csv through Slurm
+# 11-species OrthoFinder run aside (once) and run OrthoFinder on all 19 species of config/annotation.csv through Slurm
 # (one whole-node job: profiles/slurm/config.yaml, set-resources: orthofinder).
 #
 # Runs on hpc09 (needs sbatch), started in the background by the setup block. Only orthofinder_prep and orthofinder
@@ -34,19 +34,19 @@ if [ -e "$RUN/A1.failed" ]; then
   echo "OrthoFinder not started: stage A1 failed ($(cat "$RUN/A1.failed"))" > "$RUN/B.failed"; log "A1 failed; stopping"; exit 1
 fi
 
-# ---- dry run: exactly orthofinder_prep + orthofinder, nothing else ----
+# ---- dry run: orthofinder (and orthofinder_prep if a proteome changed), nothing else ----
 snakemake "$T" --profile profiles/slurm --allowed-rules orthofinder_prep orthofinder -n > "$RUN/B.dryrun.txt" 2>&1
 rc=$?
 planned=$(awk '/^(local)?rule [A-Za-z0-9_]+:/ { r = $2; sub(/:$/, "", r); n[r]++ } END { for (r in n) print r }' "$RUN/B.dryrun.txt" | sort | tr '\n' ' ')
-if [ "$rc" -ne 0 ] || [ "$planned" != "orthofinder orthofinder_prep " ]; then
+if [ "$rc" -ne 0 ] || { [ "$planned" != "orthofinder orthofinder_prep " ] && [ "$planned" != "orthofinder " ]; }; then
   { echo "OrthoFinder not started: the dry run (exit $rc) planned: ${planned:-nothing}"
-    echo "expected exactly: orthofinder orthofinder_prep. Last lines of $RUN/B.dryrun.txt:"; tail -n 25 "$RUN/B.dryrun.txt"; } > "$RUN/B.blocked"
+    echo "expected: orthofinder, with or without orthofinder_prep. Last lines of $RUN/B.dryrun.txt:"; tail -n 25 "$RUN/B.dryrun.txt"; } > "$RUN/B.blocked"
   log "blocked: see $RUN/B.blocked"; exit 1
 fi
 
-# ---- keep the 11-species run, then run all 18 ----
+# ---- keep the 11-species run (once: a later restart must not file a failed 19-species run under that name) ----
 SNAP=$OF/out_11sp_$(date +%F)
-if [ -d "$OF/out" ] && [ ! -e "$SNAP" ]; then
+if [ -d "$OF/out" ] && ! ls -d "$OF"/out_11sp_* > /dev/null 2>&1; then
   mv "$OF/out" "$SNAP"
   [ -d "$OF/input" ] && cp -a "$OF/input" "$SNAP/input_11sp"
   [ -s logs/orthofinder/run.log ] && cp -a logs/orthofinder/run.log "$SNAP/run_11sp.log"
@@ -56,8 +56,12 @@ log "OrthoFinder on $(awk -F, 'NR > 1 && $1 != ""' config/annotation.csv | wc -l
 # one retry, not the profile's three: a deterministic failure would otherwise cost up to 4 x 4 days
 snakemake "$T" --profile profiles/slurm --restart-times 1 --allowed-rules orthofinder_prep orthofinder > "$RUN/B.snakemake.log" 2>&1
 rc=$?
-if [ "$rc" -eq 0 ] && [ -s "$T" ]; then
-  echo "OrthoFinder done $(date '+%F %T'): $(($(wc -l < "$T") - 1)) orthogroups in $T" > "$RUN/B.ok"
+n_sp=$(awk -F, 'NR > 1 && $1 != ""' config/annotation.csv | wc -l)
+n_col=$([ -s "$T" ] && head -n 1 "$T" | awk -F'\t' '{ print NF - 1 }')
+if [ "$rc" -eq 0 ] && [ -s "$T" ] && [ "$n_col" = "$n_sp" ]; then
+  echo "OrthoFinder done $(date '+%F %T'): $(($(wc -l < "$T") - 1)) orthogroups, $n_col species in $T" > "$RUN/B.ok"
+elif [ "$rc" -eq 0 ] && [ -s "$T" ]; then
+  echo "OrthoFinder finished but $T has ${n_col:-?} species columns, not $n_sp: see logs/orthofinder/run.log" > "$RUN/B.failed"
 else
   echo "snakemake exit $rc (see $RUN/B.snakemake.log and logs/orthofinder/run.log)" > "$RUN/B.failed"
 fi

@@ -52,22 +52,29 @@ def frozen_chr_fasta(species: str) -> str:
 
 
 # Pick a GPU and export CUDA_VISIBLE_DEVICES: the least-used one (by memory)
-# that no other job of this workflow holds. Each GPU job takes a per-GPU lock
-# (flock on fd 9, released when the job's shell exits). Before this, two jobs
-# starting at the same moment both read 0 MiB on every GPU and both took GPU 0.
-# --resources gpu=N keeps the number of GPU jobs at or below the number of GPUs,
-# so the wait below only covers a job starting while another is still exiting.
+# that has at least GPU_MIN_FREE_MB (default 10000) MiB free and that no other
+# job of this workflow holds. Each GPU job takes a per-GPU lock (flock on fd 9,
+# released when the job's shell exits). Before this, two jobs starting at the
+# same moment both read 0 MiB on every GPU and both took GPU 0. gpu01 is shared:
+# on 2026-11-03 other users held 41 and 43 of the 46 GB on two of its three
+# A40s, so a job now waits for a GPU with room rather than starting on a full one.
+# --resources gpu=N keeps the number of GPU jobs at or below the number of GPUs.
 PICK_GPU = r'''
         nvidia-smi -L > /dev/null 2>&1 || { echo "no GPU visible on $(hostname)" >> "$LOG"; exit 1; }
-        GPU_ID=""
+        NEED_MB=${GPU_MIN_FREE_MB:-10000}
+        GPU_ID=""; WAITED=0
         while [ -z "$GPU_ID" ]; do
-            for g in $(nvidia-smi --query-gpu=index,memory.used --format=csv,noheader,nounits \
-                       | sort -t, -k2 -n | cut -d, -f1 | tr -d ' '); do
+            for g in $(nvidia-smi --query-gpu=index,memory.used,memory.total --format=csv,noheader,nounits \
+                       | awk -F', *' -v need="$NEED_MB" '$3 - $2 >= need { print $2 "," $1 }' \
+                       | sort -t, -k1,1n | cut -d, -f2); do
                 exec 9> "/tmp/${USER:-$(id -un)}_reproducible_phd_gpu$g.lock"
                 if flock -n 9; then GPU_ID=$g; break; fi
                 exec 9>&-
             done
-            [ -n "$GPU_ID" ] || sleep 60
+            if [ -z "$GPU_ID" ]; then
+                [ "$WAITED" -eq 0 ] && echo "waiting for a GPU with >= $NEED_MB MiB free $(date '+%F %T')" >> "$LOG"
+                WAITED=$((WAITED + 1)); sleep 60
+            fi
         done
         export CUDA_VISIBLE_DEVICES="$GPU_ID"
         echo "Using GPU $GPU_ID on $(hostname)" >> "$LOG"
@@ -977,6 +984,14 @@ rule fantasia:
         LOG="$REPO_ROOT/{log}"
         OUT="$REPO_ROOT/{params.outdir}"
         mkdir -p "$OUT/topgo" "$(dirname $LOG)"
+        # One FANTASIA run at a time on this host: at the start of every run FANTASIA-Lite upgrades pip and
+        # reinstalls its packages in its one shared venv (methods/FANTASIA-Lite/venv), so runs started together
+        # break each other ("Could not find pip executable in venv": 7 of 8 species, 2026-11-03). Taken before
+        # the GPU, so a waiting job does not hold one.
+        exec 8> "/tmp/${{USER:-$(id -un)}}_fantasia_venv.lock"
+        echo "waiting for the FANTASIA venv lock $(date '+%F %T')" >> "$LOG"
+        flock 8
+        echo "got the FANTASIA venv lock $(date '+%F %T')" >> "$LOG"
         {PICK_GPU}
 
         # temp/chunk I/O on netscratch, NOT local /scratch (which filled during annevo)

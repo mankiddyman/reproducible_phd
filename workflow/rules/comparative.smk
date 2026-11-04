@@ -41,9 +41,14 @@ rule orthofinder:
     holocentric/monocentric pairs from 4 other clades): the all-vs-all grows
     with the square of the species count (19^2/11^2 = 3.0x). -t runs DIAMOND,
     FAMSA and tree programs as separate processes started by threads, so 120
-    of them do not copy OrthoFinder's own memory; -a stays at 8 because each
-    analysis worker holds orthogroup data. Slurm values are in
-    profiles/slurm/config.yaml (set-resources: orthofinder)."""
+    of them do not copy OrthoFinder's own memory. -a is 4 (was 8): the last
+    steps fork -a worker copies of OrthoFinder's main process (~27 GB with 19
+    species), and under the cluster's strict memory overcommit those forks
+    failed with "[Errno 12] Cannot allocate memory" on hpc16 in both attempts
+    of 2026-11-03 (the run printed "finished" but wrote no Orthogroups.tsv).
+    The job also takes its node exclusively. Slurm values are in
+    profiles/slurm/config.yaml (set-resources: orthofinder); the node's memory
+    and commit headroom at the start go to logs/orthofinder/node_memory.txt."""
     input:
         prepdir="results/comparative/orthofinder/input",
     output:
@@ -63,10 +68,12 @@ rule orthofinder:
         r"""
         set -euo pipefail
         mkdir -p "$(dirname {log})"
+        (hostname; date; grep -E '^(MemTotal|MemAvailable|CommitLimit|Committed_AS)' /proc/meminfo) \
+            > "$(dirname {log})/node_memory.txt"
         # OrthoFinder v3 refuses an -o dir that already exists; it creates it itself.
         rm -rf "{params.outdir}"
         orthofinder -f "{input.prepdir}" \
-            -t {threads} -a 8 \
+            -t {threads} -a 4 \
             -o "{params.outdir}" -n "{params.name}" \
             > "{log}" 2>&1
         echo "=== orthofinder done ===" >> "{log}"
