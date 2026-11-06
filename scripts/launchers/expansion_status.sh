@@ -24,4 +24,6 @@ for s in $NEW; do
 done
 echo "== Slurm (OrthoFinder)"
 squeue -u "$USER" -h -o '   %i %k %T %M %R' 2> /dev/null | grep -i orthofinder || echo "   no OrthoFinder job in the queue"   # %k: the Slurm comment, rule_<name>_wildcards_...
-[ -s logs/orthofinder/run.log ] && echo "   OrthoFinder log: $(grep -v '^\s*$' logs/orthofinder/run.log | tail -n 1)"
+for l in trees run; do   # the two OrthoFinder jobs: orthofinder_trees, then orthofinder
+  [ -s logs/orthofinder/$l.log ] && echo "   OrthoFinder $l.log: $(grep -v '^\s*$' logs/orthofinder/$l.log | tail -n 1 | cut -c1-150)"
+done
