@@ -3,15 +3,18 @@
 share? (2026-11: the 11-species Droseraceae + Nepenthes run against the 19-species run that adds holocentric /
 monocentric pairs from four other clades.)
 
-Two OrthoFinder 3 results directories are compared on the genes of their shared species (genes in both runs;
-unassigned genes count as groups of one):
+Two OrthoFinder results directories are compared on the genes of their shared species (genes in both runs;
+unassigned genes count as groups of one). A gene is identified by species and name together: annotations reuse
+names across species (g4881.t1 in several of them), so a name alone identifies nothing.
 
-  A  like for like: old Orthogroups.tsv against the new run's HOGs at the most recent common ancestor (MRCA) of the
-     shared species. Both mean "all genes descended from one gene in that ancestor", so the differences are what the
-     extra species changed (gene trees, rooting, clustering).
-  B  old Orthogroups.tsv against new Orthogroups.tsv. In OrthoFinder 3, Orthogroups.tsv holds the HOGs at the root
-     (N0). The new root is older, so genes duplicated between the two roots fall into one group by construction:
-     this shows what the 19-species tables do to gene families, not a change in clustering.
+  A  like for like: the old run's root groups against the new run's HOGs at the most recent common ancestor (MRCA)
+     of the shared species. Both mean "all genes descended from one gene in that ancestor", so the differences are
+     what the extra species changed (gene trees, rooting, clustering). The old root groups are its
+     Orthogroups.tsv in OrthoFinder 3, or its Phylogenetic_Hierarchical_Orthogroups/N0.tsv in OrthoFinder 2, whose
+     Orthogroups.tsv holds MCL clusters instead.
+  B  old Orthogroups.tsv against new Orthogroups.tsv: the tables the holocentricity scripts read. In OrthoFinder 3,
+     Orthogroups.tsv holds the HOGs at the root (N0); the new root is older, so genes duplicated between the two
+     roots fall into one group by construction.
   C  orthologue pairs between the shared species (inferred from the gene trees): kept, lost, new.
   plus a lookup of named genes (--gene NAME=SPECIES:GENE) in both runs, with per-species gene counts.
 
@@ -25,7 +28,7 @@ Group-level numbers:
 
 usage: python3 compare_orthofinder_runs.py --old <Results_dir> --new <Results_dir> --out <dir>
            [--old-log FILE] [--new-log FILE] [--old-input DIR] [--new-input DIR] [--gene NAME=SPECIES:GENE ...]
-Standard library only. Writes summary.txt (also printed), old_group_fates.tsv, orthologue_pairs.tsv, gene_lookups.tsv.
+Standard library only. Writes summary.txt (also printed), group_fates.tsv, orthologue_pairs.tsv, gene_lookups.tsv.
 """
 import argparse
 import collections
@@ -59,20 +62,24 @@ def read_groups(fn, first_sp_col):
     return species, groups
 
 
-def run_groups(res_dir):
-    """Orthogroups.tsv + Orthogroups_UnassignedGenes.tsv of one run -> (species, gene -> group, group -> size)."""
+def gene_map(groups):
+    """{(species, gene): group id}"""
+    return {(sp, x): gid for gid, g in groups.items() for sp, genes in g.items() for x in genes}
+
+
+def run_tables(res_dir):
+    """Orthogroups.tsv + Orthogroups_UnassignedGenes.tsv -> (species, {group: {species: genes}}, {(species, gene): group})"""
     species, groups = read_groups(os.path.join(res_dir, "Orthogroups", "Orthogroups.tsv"), 1)
     un = os.path.join(res_dir, "Orthogroups", "Orthogroups_UnassignedGenes.tsv")
     if os.path.exists(un):
-        _, ug = read_groups(un, 1)
-        groups.update(ug)
-    gene2grp, sp_of = {}, {}
-    for gid, g in groups.items():
-        for sp, genes in g.items():
-            for x in genes:
-                gene2grp[x] = gid
-                sp_of[x] = sp
-    return species, groups, gene2grp, sp_of
+        groups.update(read_groups(un, 1)[1])
+    return species, groups, gene_map(groups)
+
+
+def hog_file(res_dir, node):
+    """HOGs at a node of the species tree, or None if the run has no such file (OrthoFinder 3 writes none for N0)."""
+    fn = os.path.join(res_dir, "Phylogenetic_Hierarchical_Orthogroups", f"{node}.tsv")
+    return read_groups(fn, 3)[1] if os.path.exists(fn) else None
 
 
 def parse_newick_clades(nwk):
@@ -137,15 +144,17 @@ def orthologue_pairs(res_dir, sp1, sp2):
     return pairs
 
 
-def version_line(fn):
-    if not fn or not os.path.exists(fn):
-        return "(no log given)"
-    with open(fn, errors="replace") as fh:
-        for line in fh:
-            m = re.search(r"OrthoFinder v[0-9][0-9.]*", re.sub(r"\x1b\[[0-9;]*m", "", line))
-            if m:
-                return m.group(0)
-    return "(no version line found)"
+def version(res_dir, log):
+    """OrthoFinder version from the results dir's Log.txt, else from a run log."""
+    rx = re.compile(r"OrthoFinder (?:version |v)([0-9]+(?:\.[0-9]+)*)")
+    for fn in (os.path.join(res_dir, "Log.txt"), log):
+        if fn and os.path.exists(fn):
+            with open(fn, errors="replace") as fh:
+                for line in fh:
+                    m = rx.search(re.sub(r"\x1b\[[0-9;]*m", "", line))
+                    if m:
+                        return m.group(1)
+    return None
 
 
 def md5(fn):
@@ -162,7 +171,7 @@ def comb2(x):
 
 
 def compare_partitions(genes, lab_a, lab_b):
-    """Pair-counting comparison of two partitions of the same genes. lab_*: gene -> group label."""
+    """Pair-counting comparison of two partitions of the same genes. lab_*: gene key -> group label."""
     nij = collections.Counter((lab_a[g], lab_b[g]) for g in genes)
     ai = collections.Counter(lab_a[g] for g in genes)
     bj = collections.Counter(lab_b[g] for g in genes)
@@ -175,12 +184,10 @@ def compare_partitions(genes, lab_a, lab_b):
     ari = (s_ij - expected) / denom if denom else 1.0
     kept = s_ij / s_a if s_a else 1.0
     new = 1 - s_ij / s_b if s_b else 0.0
-    # fate of each old group of 2+ genes
     members = collections.defaultdict(list)
     for g in genes:
         members[lab_a[g]].append(g)
-    fates, fate_rows = collections.Counter(), {}
-    fate_genes = collections.Counter()
+    fates, fate_genes, rows = collections.Counter(), collections.Counter(), {}
     for grp, gs in members.items():
         if len(gs) < 2:
             continue
@@ -193,14 +200,11 @@ def compare_partitions(genes, lab_a, lab_b):
         fates[fate] += 1
         fate_genes[fate] += len(gs)
         top, top_n = targets.most_common(1)[0]
-        fate_rows[grp] = (len(gs), fate, len(targets), round(top_n / len(gs), 3), top, bj[top])
-    # genes alone in the old run (unassigned) that joined a group, and the reverse
+        rows[grp] = (len(gs), fate, len(targets), round(top_n / len(gs), 3), top, bj[top])
     joined = sum(1 for g in genes if ai[lab_a[g]] == 1 and bj[lab_b[g]] > 1)
     left = sum(1 for g in genes if ai[lab_a[g]] > 1 and bj[lab_b[g]] == 1)
-    n_a = sum(1 for v in ai.values() if v > 1)
-    n_b = sum(1 for v in bj.values() if v > 1)
-    return dict(ari=ari, kept=kept, new=new, fates=fates, fate_genes=fate_genes, rows=fate_rows,
-                joined=joined, left=left, n_groups_a=n_a, n_groups_b=n_b)
+    return dict(ari=ari, kept=kept, new=new, fates=fates, fate_genes=fate_genes, rows=rows, joined=joined, left=left,
+                n_groups_a=sum(1 for v in ai.values() if v > 1), n_groups_b=sum(1 for v in bj.values() if v > 1))
 
 
 def code(sp):
@@ -213,6 +217,11 @@ def gene_matcher(q):
     """Matches q as a whole token of a gene id: 'g4881' matches g4881.t1, Drosera_regia_g4881.t1, not g48810.t1."""
     rx = re.compile(r"(^|[_|:])" + re.escape(q) + r"($|[.\-_|])")
     return lambda gene: bool(rx.search(gene))
+
+
+def labels(universe, gmap):
+    """gene key -> group label; genes in no group become groups of one."""
+    return {k: gmap.get(k, ("alone",) + k) for k in universe}
 
 
 # ---------------------------------------------------------------------------------------------------- main
@@ -232,87 +241,86 @@ def main():
         lines.append(s)
         print(s, flush=True)
 
-    old_sp, old_groups, old_g2, old_spof = run_groups(a.old)
-    new_sp, new_groups, new_g2, new_spof = run_groups(a.new)
+    old_sp, old_groups, old_map = run_tables(a.old)
+    new_sp, new_groups, new_map = run_tables(a.new)
+    v_old, v_new = version(a.old, a.old_log), version(a.new, a.new_log)
+    old_root_hogs = hog_file(a.old, "N0")           # OrthoFinder 2 only
     shared = [s for s in old_sp if s in set(new_sp)]
+    added = [s for s in new_sp if s not in set(shared)]
     say("OrthoFinder runs compared")
     say(f"  old: {a.old}")
-    say(f"       {len(old_sp)} species, {version_line(a.old_log)}")
+    say(f"       {len(old_sp)} species, OrthoFinder {v_old or '? (no version line found)'}"
+        + ("; OrthoFinder 2 layout (root HOGs in N0.tsv, Orthogroups.tsv = MCL clusters)" if old_root_hogs else ""))
     say(f"  new: {a.new}")
-    say(f"       {len(new_sp)} species, {version_line(a.new_log)}")
+    say(f"       {len(new_sp)} species, OrthoFinder {v_new or '? (no version line found)'}")
+    if v_old and v_new and v_old != v_new:
+        say(f"  !! different OrthoFinder versions: part of any difference is the software, not the species")
     say(f"  shared species ({len(shared)}): {', '.join(shared)}")
     only_old = [s for s in old_sp if s not in set(new_sp)]
     if only_old:
         say(f"  !! species only in the old run (left out of the comparison): {', '.join(only_old)}")
-    say(f"  added in the new run ({len(new_sp) - len(shared)}): {', '.join(s for s in new_sp if s not in set(old_sp))}")
+    say(f"  added in the new run ({len(added)}): {', '.join(added)}")
 
     # ---- same genes and proteomes for the shared species?
     say("")
     say("Same input for the shared species?")
     old_by_sp, new_by_sp = collections.defaultdict(set), collections.defaultdict(set)
-    for g, s in old_spof.items():
-        old_by_sp[s].add(g)
-    for g, s in new_spof.items():
-        new_by_sp[s].add(g)
-    universe = []
-    diff_sp = []
+    for sp, g in old_map:
+        old_by_sp[sp].add(g)
+    for sp, g in new_map:
+        new_by_sp[sp].add(g)
+    universe, diff_sp = [], []
     for s in shared:
         common = old_by_sp[s] & new_by_sp[s]
-        universe.extend(sorted(common))
+        universe.extend((s, g) for g in sorted(common))
         if len(common) != len(old_by_sp[s]) or len(common) != len(new_by_sp[s]):
             diff_sp.append(f"{s} (old {len(old_by_sp[s])}, new {len(new_by_sp[s])}, both {len(common)})")
     if diff_sp:
         say(f"  !! gene sets differ for {len(diff_sp)} species: {'; '.join(diff_sp)}")
     else:
-        say(f"  gene ids: identical for all {len(shared)} shared species ({len(universe)} genes)")
+        say(f"  genes: identical for all {len(shared)} shared species ({len(universe)} genes)")
+    say("  genes per species: " + ", ".join(f"{code(s)} {len(old_by_sp[s])}" for s in shared))
     if a.old_input and a.new_input:
         changed = [s for s in shared
                    if os.path.exists(os.path.join(a.old_input, s + ".fa"))
                    and os.path.exists(os.path.join(a.new_input, s + ".fa"))
                    and md5(os.path.join(a.old_input, s + ".fa")) != md5(os.path.join(a.new_input, s + ".fa"))]
         say(f"  input proteomes: {'identical files' if not changed else '!! differ for ' + ', '.join(changed)}")
-    universe_set = set(universe)
+    U = set(universe)
 
     # ---- the node of the new species tree matching the old run's root
     clades, leaves = parse_newick_clades(open(os.path.join(a.new, "Species_Tree", "SpeciesTree_rooted_node_labels.txt")).read())
     want = frozenset(shared)
-    cands = [(len(c), lab) for lab, c in clades.items() if want <= c]
-    node = min(cands)[1]
+    node = min((len(c), lab) for lab, c in clades.items() if want <= c)[1]
     extra = sorted(clades[node] - want)
     say("")
     say("Node of the new species tree that matches the old run's root (MRCA of the shared species)")
     say(f"  {node}: {len(clades[node])} species" + (f"; !! it also holds {', '.join(extra)} (the shared species are not one clade)" if extra else ", exactly the shared species"))
     say(f"  new root N0: {len(clades.get('N0', leaves))} species")
 
-    # labels: old groups; new HOGs at the node (genes not in any HOG there: groups of one); new root groups
-    lab_old = {g: old_g2[g] for g in universe}
-    lab_root = {g: new_g2[g] for g in universe}
-    hog_fn = os.path.join(a.new, "Phylogenetic_Hierarchical_Orthogroups", f"{node}.tsv")
-    if node == "N0" or not os.path.exists(hog_fn):
-        if node != "N0":
-            say(f"  !! {hog_fn} not found: using the root groups for both comparisons")
-        lab_node = dict(lab_root)
-        node_groups = new_groups
+    # ---- partitions: A = old root groups vs new HOGs at the node; B = old vs new Orthogroups.tsv
+    old_A_map = gene_map(old_root_hogs) if old_root_hogs else old_map
+    node_hogs = hog_file(a.new, node)
+    if node_hogs is not None:
+        node_map, node_groups = gene_map(node_hogs), node_hogs
+        missing = sum(1 for k in universe if k not in node_map)
+        say(f"  HOGs at {node}: {len(node_hogs)}; genes of the shared species in none of them (groups of one): {missing}")
     else:
-        _, hogs = read_groups(hog_fn, 3)
-        node_groups = hogs
-        g2hog = {}
-        for hid, g in hogs.items():
-            for genes in g.values():
-                for x in genes:
-                    g2hog[x] = hid
-        lab_node = {g: g2hog.get(g, ("alone", g)) for g in universe}
-        missing = sum(1 for g in universe if g not in g2hog)
-        say(f"  HOGs at {node}: {len(hogs)}; genes of the shared species in none of them (counted as groups of one): {missing}")
-
-    # ---- A and B
+        node_map, node_groups = new_map, new_groups
+        say(f"  no HOG file for {node}: its groups are the new Orthogroups.tsv")
+    if old_root_hogs:
+        missing = sum(1 for k in universe if k not in old_A_map)
+        say(f"  old root HOGs (N0.tsv): {len(old_root_hogs)}; shared-species genes in none of them (groups of one): {missing}")
+    labs = {"A": (labels(universe, old_A_map), labels(universe, node_map)),
+            "B": (labels(universe, old_map), labels(universe, new_map))}
+    titles = {"A": f"A  like for like: old root groups{' (N0.tsv HOGs)' if old_root_hogs else ''} vs new HOGs at {node}",
+              "B": "B  old vs new Orthogroups.tsv (what the screens read; the new root lumps genes duplicated between the roots)"}
     res = {}
-    for key, title, lab in (("A", f"A  like for like: old groups vs new HOGs at {node}", lab_node),
-                            ("B", "B  old groups vs new Orthogroups.tsv (root N0; lumps genes duplicated between the two roots)", lab_root)):
-        r = compare_partitions(universe, lab_old, lab)
+    for key in ("A", "B"):
+        r = compare_partitions(universe, *labs[key])
         res[key] = r
         say("")
-        say(title)
+        say(titles[key])
         say(f"  ARI {r['ari']:.3f} | pairs kept {100 * r['kept']:.1f}% | pairs new {100 * r['new']:.1f}%")
         say(f"  groups of 2+ genes: old {r['n_groups_a']}, new {r['n_groups_b']}")
         tot = sum(r["fates"].values())
@@ -320,13 +328,12 @@ def main():
             say(f"    {f:<11s} {r['fates'][f]:>7d} old groups ({100 * r['fates'][f] / tot if tot else 0:5.1f}%)  {r['fate_genes'][f]:>8d} genes")
         say(f"  unassigned before, in a group now: {r['joined']} genes; in a group before, unassigned now: {r['left']}")
 
-    with open(os.path.join(a.out, "old_group_fates.tsv"), "w") as fh:
-        fh.write("old_group\tn_genes\tfate_at_" + node + "\tn_new_groups_at_" + node + "\tlargest_share_at_" + node +
-                 "\tmain_new_hog\tmain_new_hog_n_genes\tfate_at_root\tn_new_groups_at_root\tmain_new_og\tmain_new_og_n_genes\n")
-        for grp, (n, fate, nt, share, top, top_n) in sorted(res["A"]["rows"].items()):
-            nb, fb, ntb, shb, topb, topb_n = res["B"]["rows"][grp]
-            top = top if isinstance(top, str) else "-"
-            fh.write(f"{grp}\t{n}\t{fate}\t{nt}\t{share}\t{top}\t{top_n}\t{fb}\t{ntb}\t{topb}\t{topb_n}\n")
+    with open(os.path.join(a.out, "group_fates.tsv"), "w") as fh:
+        fh.write("comparison\told_group\tn_genes\tfate\tn_new_groups\tlargest_share\tmain_new_group\tmain_new_group_n_genes\n")
+        for key in ("A", "B"):
+            for grp, (n, fate, nt, share, top, top_n) in sorted(res[key]["rows"].items(), key=lambda kv: str(kv[0])):
+                top = top if isinstance(top, str) else "-"
+                fh.write(f"{key}\t{grp}\t{n}\t{fate}\t{nt}\t{share}\t{top}\t{top_n}\n")
 
     # ---- C orthologue pairs
     say("")
@@ -337,8 +344,8 @@ def main():
         po, pn = orthologue_pairs(a.old, s1, s2), orthologue_pairs(a.new, s1, s2)
         if po is None or pn is None:
             continue
-        po = {p for p in po if p[0] in universe_set and p[1] in universe_set}
-        pn = {p for p in pn if p[0] in universe_set and p[1] in universe_set}
+        po = {p for p in po if (s1, p[0]) in U and (s2, p[1]) in U}
+        pn = {p for p in pn if (s1, p[0]) in U and (s2, p[1]) in U}
         both = len(po & pn)
         tot_old, tot_new, tot_both = tot_old + len(po), tot_new + len(pn), tot_both + both
         union = len(po) + len(pn) - both
@@ -360,7 +367,6 @@ def main():
     if a.gene:
         say("")
         say("Named genes: per-species gene counts of their group (shared species; then the added species at the root)")
-        added = [s for s in new_sp if s not in set(shared)]
         with open(os.path.join(a.out, "gene_lookups.tsv"), "w") as fh:
             fh.write("name\tquery\tgene\tlevel\tgroup\t" + "\t".join(new_sp) + "\n")
             for spec in a.gene:
@@ -372,14 +378,16 @@ def main():
                     say(f"  {name} ({sp}:{q}): not found in the old run")
                     continue
                 for g in hits[:3]:
-                    levels = [("old", old_groups[old_g2[g]], old_g2[g])]
-                    if g in new_g2:
-                        if not isinstance(lab_node.get(g), tuple):
-                            hid = lab_node[g]
-                            levels.append((f"new {node}", node_groups[hid], hid))
+                    k = (sp, g)
+                    levels = [("old", old_groups[old_map[k]], old_map[k])]
+                    if old_root_hogs and k in old_A_map:
+                        levels.append(("old N0", old_root_hogs[old_A_map[k]], old_A_map[k]))
+                    if k in new_map:
+                        if k in node_map:
+                            levels.append((f"new {node}", node_groups[node_map[k]], node_map[k]))
                         else:
                             levels.append((f"new {node}", {}, "(in no HOG there)"))
-                        levels.append(("new root", new_groups[new_g2[g]], new_g2[g]))
+                        levels.append(("new root", new_groups[new_map[k]], new_map[k]))
                     say(f"  {name} = {g}")
                     for lev, grp, gid in levels:
                         counts = {s: len(grp.get(s, [])) for s in new_sp}
@@ -393,7 +401,7 @@ def main():
     with open(os.path.join(a.out, "summary.txt"), "w") as fh:
         fh.write("\n".join(lines) + "\n")
     say("")
-    say(f"written: {a.out}/summary.txt, old_group_fates.tsv, orthologue_pairs.tsv" + (", gene_lookups.tsv" if a.gene else ""))
+    say(f"written: {a.out}/summary.txt, group_fates.tsv, orthologue_pairs.tsv" + (", gene_lookups.tsv" if a.gene else ""))
 
 
 if __name__ == "__main__":
